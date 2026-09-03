@@ -1,0 +1,20 @@
+fastapi
+uvicorn[standard]
+python-multipart
+sqlalchemy
+aiosqlite
+python-dotenv
+pydantic
+pydantic-settings
+aiofiles
+Pillow
+numpy
+reportlab
+torch==2.8.0+cpu
+torchvision==0.23.0+cpu
+--extra-index-url https://download.pytorch.org/whl/cpu
+python-jose[cryptography]
+passlib==1.7.4
+bcrypt==4.0.1
+email-validator
+av

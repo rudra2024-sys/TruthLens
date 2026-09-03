@@ -1,0 +1,46 @@
+name: TruthLense
+
+services:
+  backend:
+    build:
+      context: ./backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+      - ./models/checkpoints/image:/app/checkpoints/image:ro
+      - uploads_data:/app/uploads
+      - reports_data:/app/reports
+    environment:
+      DEBUG: "true"
+      IMAGE_MODEL_CHECKPOINT: "/app/checkpoints/image/convnext_tiny_best.pth"
+      IMAGE_MODEL_DEVICE: "cpu"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - truthlens
+
+  frontend:
+    build:
+      context: ./frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - truthlens
+
+networks:
+  truthlens:
+    driver: bridge
+
+volumes:
+  uploads_data:
+  reports_data:

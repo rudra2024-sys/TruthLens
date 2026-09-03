@@ -1,0 +1,86 @@
+# ============================================================
+# TruthLens .gitignore
+# Source code and configuration (requirements.txt, package.json,
+# docker-compose.yml, app code) must NOT be ignored by any rule
+# below. If you add a rule, make sure it only matches generated
+# output, dependencies, secrets, or large binary artifacts.
+# ============================================================
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Python virtual environments (repo currently has both venv/ and .venv/)
+venv/
+.venv/
+env/
+ENV/
+
+# ---- Environment / secrets ----
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*credentials*.json
+
+# ---- Node / frontend ----
+node_modules/
+frontend/dist/
+frontend/build/
+frontend/.vite/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ---- Build / dist output (generic) ----
+dist/
+build/
+
+# ---- Runtime-generated app data (uploads, DB, reports) ----
+backend/uploads/
+backend/reports/
+models/uploads/
+models/reports/
+legacy/uploads/
+legacy/reports/
+*.sqlite3
+*.db
+truthlens.db
+
+# ---- Model checkpoints / large ML artifacts ----
+# Large training checkpoints are NOT committed to git (the ConvNeXt
+# checkpoint alone is ~320MB). Small pretrained inference weights
+# (e.g. the AASIST/MesoNet .onnx files under services/models/weights/)
+# ARE currently tracked since the app cannot run without them and
+# they are a few hundred KB to ~2MB each — see CLAUDE.md.
+*.pth
+*.pt
+*.ckpt
+*.safetensors
+*.h5
+models/checkpoints/
+
+# ---- Temporary files ----
+*.tmp
+*.temp
+*.bak
+*.log
+
+# ---- OS / IDE ----
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ---- Claude Code local tooling (dev-server launch config, not app config) ----
+.claude/
