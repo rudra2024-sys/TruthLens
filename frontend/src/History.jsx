@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { getHistory } from './client'
+import { getHistory } from './api/client'
 
 const ImageIcon = () => (
   <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
@@ -27,23 +27,24 @@ const ArrowRight = () => (
 )
 
 const getVerdictStyle = (v) => {
-  if (v === 'authentic' || v === 'real') return { text: 'text-[#5A7A5A]', bg: 'bg-[rgba(90,122,90,0.08)]', border: 'border-[rgba(90,122,90,0.2)]', label: 'Authentic' }
-  if (v === 'suspicious') return { text: 'text-[#B89A6A]', bg: 'bg-[rgba(184,154,106,0.08)]', border: 'border-[rgba(184,154,106,0.2)]', label: 'Suspicious' }
+  const val = (v || '').toString().toUpperCase()
+  if (val === 'REAL' || val === 'AUTHENTIC') return { text: 'text-[#5A7A5A]', bg: 'bg-[rgba(90,122,90,0.08)]', border: 'border-[rgba(90,122,90,0.2)]', label: 'Authentic' }
+  if (val === 'UNCERTAIN' || val === 'SUSPICIOUS') return { text: 'text-[#B89A6A]', bg: 'bg-[rgba(184,154,106,0.08)]', border: 'border-[rgba(184,154,106,0.2)]', label: 'Suspicious' }
   return { text: 'text-[#9A5A5A]', bg: 'bg-[rgba(154,90,90,0.08)]', border: 'border-[rgba(154,90,90,0.2)]', label: 'Manipulated' }
 }
 
 const getFileIcon = (type) => {
   if (!type) return <ImageIcon />
-  if (type.startsWith('image/')) return <ImageIcon />
-  if (type.startsWith('video/')) return <VideoIcon />
-  if (type.startsWith('audio/')) return <AudioIcon />
+  if (type.startsWith('image')) return <ImageIcon />
+  if (type.startsWith('video')) return <VideoIcon />
+  if (type.startsWith('audio')) return <AudioIcon />
   return <ImageIcon />
 }
 
 const groupByDate = (items) => {
   const groups = {}
   items.forEach(item => {
-    const date = new Date(item.created_at || item.date || Date.now())
+    const date = new Date(item.uploaded_at || Date.now())
     const key = date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
     if (!groups[key]) groups[key] = []
     groups[key].push(item)
@@ -131,7 +132,7 @@ export default function History() {
                     {items.map((item, i) => {
                       const verdict = item.verdict || item.label || 'analyzed'
                       const s = getVerdictStyle(verdict)
-                      const date = new Date(item.created_at || item.date || Date.now())
+                      const date = new Date(item.uploaded_at || Date.now())
                       return (
                         <div
                           key={item.upload_id || i}
@@ -141,7 +142,7 @@ export default function History() {
                           <div className="flex items-start justify-between mb-5">
                             <div className="flex items-center gap-3">
                               <div className="w-10 h-10 rounded-full bg-[rgba(166,123,91,0.06)] flex items-center justify-center text-[#8A8580]">
-                                {getFileIcon(item.file_type)}
+                                {getFileIcon(item.media_type)}
                               </div>
                               <div>
                                 <p className="font-mono text-[10px] tracking-wider text-[#8A8580] uppercase">{date.toLocaleDateString()}</p>
@@ -152,11 +153,11 @@ export default function History() {
                               {s.label}
                             </span>
                           </div>
-                          <p className="font-serif text-[18px] text-[#1A1A1A] mb-3 truncate">{item.filename || 'Untitled'}</p>
+                          <p className="font-serif text-[18px] text-[#1A1A1A] mb-3 truncate">{item.file_name || 'Untitled'}</p>
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2">
                               <span className="text-[11px] text-[#8A8580]">Confidence</span>
-                              <span className="font-mono text-[12px] text-[#1A1A1A]">{Math.round((item.confidence || item.score || 0) * 100)}%</span>
+                              <span className="font-mono text-[12px] text-[#1A1A1A]">{Math.round((item.confidence_score || 0) * 100)}%</span>
                             </div>
                             <span className="text-[#A67B5B] opacity-0 group-hover:opacity-100 transition-opacity duration-300">
                               <ArrowRight />

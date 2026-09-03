@@ -227,10 +227,14 @@ def generate_pdf_report(upload: Upload, result: DetectionResult) -> str:
 
         audio_analysis = result.audio_analysis
 
+        # Note: these DB fields are named wav2vec_score/lcnn_score for legacy
+        # reasons, but the active audio detector writes AASIST output into
+        # them (see backend/app/services/audio/detector.py). Labels below
+        # describe what was actually computed, not the field names.
         if audio_analysis.wav2vec_score is not None:
             elements.append(
                 Paragraph(
-                    f"Spectral Entropy Score: "
+                    f"AASIST Spoof Probability: "
                     f"{audio_analysis.wav2vec_score * 100:.1f}%",
                     styles["Normal"],
                 )
@@ -239,7 +243,7 @@ def generate_pdf_report(upload: Upload, result: DetectionResult) -> str:
         if audio_analysis.lcnn_score is not None:
             elements.append(
                 Paragraph(
-                    f"Amplitude / Packing Score: "
+                    f"AASIST Score Variability (std. across windows): "
                     f"{audio_analysis.lcnn_score * 100:.1f}%",
                     styles["Normal"],
                 )

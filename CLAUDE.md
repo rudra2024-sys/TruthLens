@@ -130,8 +130,14 @@ instead of a bare crash — keep this when touching `main.py`.
 - `frontend/src/pages/*` (Analytics.jsx, AnalyticsPage.jsx, Dashboard.jsx, HistoryPage.jsx,
   Models.jsx, ModelsPage.jsx, Scan.jsx, SettingsPage.jsx) — **none of these are imported by
   `App.jsx`**. The entire `pages/` directory is currently dead/unreferenced.
-- `frontend/src/client.js` (root-level, distinct from `src/api/client.js`) — not imported
-  anywhere; `App.jsx` and all live pages use `src/api/client.js`.
+- `frontend/src/client.js` (root-level, distinct from `src/api/client.js`) — **now fully
+  dead**. Until the Phase 3 hardening pass (see git history), `Home.jsx`, `Verify.jsx`,
+  `History.jsx`, and `Reports.jsx` imported from this file instead of `src/api/client.js`,
+  which meant those four pages' requests never got the JWT `Authorization` header that
+  `src/api/client.js`'s axios interceptor attaches, and used a version of `friendlyError()`
+  that didn't handle array-shaped 422 validation errors. All four now import from
+  `src/api/client.js` (the superset). `client.js` itself was left in place rather than
+  deleted — flagged here per the "don't delete without flagging" rule.
 - `models/` (top-level microservice) and `legacy/` — see §1. Not part of the active request
   path.
 
@@ -237,3 +243,19 @@ connect otherwise (seen in this environment).
 5. **Do not fabricate model output, statistics, or forensic explanations in the UI.** If a
    feature isn't backed by real backend data, the UI should say so rather than show invented
    numbers.
+
+---
+
+## 9. Future multi-model integration (Phase 5 notes)
+
+`backend/app/services/detection_interface.py` sketches a common `DetectionResult` shape and
+`ImageDetector`/`AudioDetector`/`VideoDetector`/`FusionDetector` `Protocol`s for a future
+ensemble layer. **It is not imported anywhere and changes no current behavior** — it exists
+only as a design reference.
+
+Actually making the three live detectors conform to it (and building a real fusion layer) was
+deliberately **not done**, because `detect.py`'s dispatch is simple if/elif routing to three
+detectors that each return a different bespoke shape, and normalizing all of that
+simultaneously is a multi-file refactor of currently-correct, working code — real regression
+risk, not an additive change. Treat that as a separate, explicitly-approved follow-up task, not
+something to pick up incidentally while touching nearby code.

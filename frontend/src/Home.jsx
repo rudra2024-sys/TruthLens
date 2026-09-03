@@ -1,6 +1,6 @@
 import React, { useState, useRef, useCallback } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { uploadMedia, runDetection } from './client'
+import { uploadMedia, runDetection } from './api/client'
 import Logo from './Logo'
 
 const ArrowRight = () => (
@@ -54,8 +54,9 @@ const UploadZone = () => {
   }
 
   const getVerdictStyle = (v) => {
-    if (v === 'authentic' || v === 'real') return { text: 'text-[#5A7A5A]', bg: 'bg-[rgba(90,122,90,0.08)]', border: 'border-[rgba(90,122,90,0.2)]', label: 'Authentic' }
-    if (v === 'suspicious') return { text: 'text-[#B89A6A]', bg: 'bg-[rgba(184,154,106,0.08)]', border: 'border-[rgba(184,154,106,0.2)]', label: 'Suspicious' }
+    const val = (v || '').toString().toUpperCase()
+    if (val === 'REAL' || val === 'AUTHENTIC') return { text: 'text-[#5A7A5A]', bg: 'bg-[rgba(90,122,90,0.08)]', border: 'border-[rgba(90,122,90,0.2)]', label: 'Authentic' }
+    if (val === 'UNCERTAIN' || val === 'SUSPICIOUS') return { text: 'text-[#B89A6A]', bg: 'bg-[rgba(184,154,106,0.08)]', border: 'border-[rgba(184,154,106,0.2)]', label: 'Suspicious' }
     return { text: 'text-[#9A5A5A]', bg: 'bg-[rgba(154,90,90,0.08)]', border: 'border-[rgba(154,90,90,0.2)]', label: 'Manipulated' }
   }
 

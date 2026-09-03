@@ -1,6 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { uploadMedia, runDetection } from './client'
+import { uploadMedia, runDetection } from './api/client'
 import Logo from './Logo'
 
 const ArrowRight = () => (
@@ -51,8 +51,9 @@ const getFileIcon = (type) => {
 }
 
 const getVerdictStyle = (v) => {
-  if (v === 'authentic' || v === 'real') return { text: 'text-[#5A7A5A]', bg: 'bg-[rgba(90,122,90,0.08)]', border: 'border-[rgba(90,122,90,0.2)]', label: 'Authentic' }
-  if (v === 'suspicious') return { text: 'text-[#B89A6A]', bg: 'bg-[rgba(184,154,106,0.08)]', border: 'border-[rgba(184,154,106,0.2)]', label: 'Suspicious' }
+  const val = (v || '').toString().toUpperCase()
+  if (val === 'REAL' || val === 'AUTHENTIC') return { text: 'text-[#5A7A5A]', bg: 'bg-[rgba(90,122,90,0.08)]', border: 'border-[rgba(90,122,90,0.2)]', label: 'Authentic' }
+  if (val === 'UNCERTAIN' || val === 'SUSPICIOUS') return { text: 'text-[#B89A6A]', bg: 'bg-[rgba(184,154,106,0.08)]', border: 'border-[rgba(184,154,106,0.2)]', label: 'Suspicious' }
   return { text: 'text-[#9A5A5A]', bg: 'bg-[rgba(154,90,90,0.08)]', border: 'border-[rgba(154,90,90,0.2)]', label: 'Manipulated' }
 }
 
@@ -235,10 +236,10 @@ export default function Verify() {
                 <div className="mb-10">
                   <div className="flex items-center justify-between mb-3">
                     <span className="text-[13px] text-[#8A8580]">Confidence</span>
-                    <span className="font-mono text-[14px] text-[#1A1A1A]">{result.confidence_score ?? 0}%</span>
+                    <span className="font-mono text-[14px] text-[#1A1A1A]">{((result.confidence_score ?? 0) * 100).toFixed(1)}%</span>
                   </div>
                   <div className="h-[3px] bg-[rgba(138,133,128,0.15)] rounded-full overflow-hidden">
-                    <div className="h-full bg-[#A67B5B] rounded-full transition-all duration-1000" style={{ width: `${result.confidence_score ?? 0}%` }} />
+                    <div className="h-full bg-[#A67B5B] rounded-full transition-all duration-1000" style={{ width: `${((result.confidence_score ?? 0) * 100).toFixed(1)}%` }} />
                   </div>
                 </div>
 

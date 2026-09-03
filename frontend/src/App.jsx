@@ -428,6 +428,24 @@ const GuestRoute = ({ children }) => {
   return children
 }
 
+const NotFound = () => (
+  <div className="min-h-screen bg-[#F7F5F0] pt-[72px] flex items-center justify-center px-6">
+    <div className="text-center max-w-[420px]">
+      <p className="text-[12px] tracking-[0.2em] uppercase text-[#8A8580] mb-3">404</p>
+      <h1 className="font-serif text-[36px] text-[#1A1A1A] mb-4">Page not found</h1>
+      <p className="text-[15px] text-[#8A8580] mb-8">
+        The page you're looking for doesn't exist or may have moved.
+      </p>
+      <a
+        href="/"
+        className="inline-block px-6 py-3 bg-[#1A1A1A] text-white rounded-[4px] text-[14px]"
+      >
+        Back to home
+      </a>
+    </div>
+  </div>
+)
+
 const Layout = ({ children }) => (
   <>
     <Navigation />
@@ -486,6 +504,7 @@ export default function App() {
           }
         />
         <Route path="/report/:id" element={<Layout><ReportDetail /></Layout>} />
+        <Route path="*" element={<Layout><NotFound /></Layout>} />
       </Routes>
     </BrowserRouter>
   )

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { getHistory, reportUrl } from './client'
+import { getHistory, reportUrl } from './api/client'
 
 const DownloadIcon = () => (
   <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
@@ -16,8 +16,9 @@ const EyeIcon = () => (
 )
 
 const getVerdictStyle = (v) => {
-  if (v === 'authentic' || v === 'real') return { text: 'text-[#5A7A5A]', bg: 'bg-[rgba(90,122,90,0.08)]', border: 'border-[rgba(90,122,90,0.2)]', label: 'Authentic' }
-  if (v === 'suspicious') return { text: 'text-[#B89A6A]', bg: 'bg-[rgba(184,154,106,0.08)]', border: 'border-[rgba(184,154,106,0.2)]', label: 'Suspicious' }
+  const val = (v || '').toString().toUpperCase()
+  if (val === 'REAL' || val === 'AUTHENTIC') return { text: 'text-[#5A7A5A]', bg: 'bg-[rgba(90,122,90,0.08)]', border: 'border-[rgba(90,122,90,0.2)]', label: 'Authentic' }
+  if (val === 'UNCERTAIN' || val === 'SUSPICIOUS') return { text: 'text-[#B89A6A]', bg: 'bg-[rgba(184,154,106,0.08)]', border: 'border-[rgba(184,154,106,0.2)]', label: 'Suspicious' }
   return { text: 'text-[#9A5A5A]', bg: 'bg-[rgba(154,90,90,0.08)]', border: 'border-[rgba(154,90,90,0.2)]', label: 'Manipulated' }
 }
 
@@ -72,21 +73,21 @@ export default function Reports() {
               <div className="w-px h-10 bg-[rgba(138,133,128,0.15)]" />
               <div>
                 <p className="font-serif text-[32px] text-[#5A7A5A]">
-                  {reports.filter(r => (r.verdict || r.label) === 'authentic' || (r.verdict || r.label) === 'real').length}
+                  {reports.filter(r => (r.verdict || r.label || '').toString().toUpperCase() === 'REAL').length}
                 </p>
                 <p className="text-[10px] tracking-[0.15em] uppercase text-[#8A8580] mt-1">Authentic</p>
               </div>
               <div className="w-px h-10 bg-[rgba(138,133,128,0.15)]" />
               <div>
                 <p className="font-serif text-[32px] text-[#9A5A5A]">
-                  {reports.filter(r => (r.verdict || r.label) === 'fake' || (r.verdict || r.label) === 'manipulated').length}
+                  {reports.filter(r => (r.verdict || r.label || '').toString().toUpperCase() === 'FAKE').length}
                 </p>
                 <p className="text-[10px] tracking-[0.15em] uppercase text-[#8A8580] mt-1">Manipulated</p>
               </div>
               <div className="w-px h-10 bg-[rgba(138,133,128,0.15)]" />
               <div>
                 <p className="font-serif text-[32px] text-[#B89A6A]">
-                  {reports.filter(r => (r.verdict || r.label) === 'suspicious').length}
+                  {reports.filter(r => (r.verdict || r.label || '').toString().toUpperCase() === 'UNCERTAIN').length}
                 </p>
                 <p className="text-[10px] tracking-[0.15em] uppercase text-[#8A8580] mt-1">Suspicious</p>
               </div>
@@ -126,8 +127,8 @@ export default function Reports() {
               {reports.map((report, i) => {
                 const verdict = report.verdict || report.label || 'analyzed'
                 const s = getVerdictStyle(verdict)
-                const date = new Date(report.created_at || report.date || Date.now())
-                const confidence = (report.confidence || report.score || 0) * 100
+                const date = new Date(report.uploaded_at || Date.now())
+                const confidence = (report.confidence_score || 0) * 100
                 return (
                   <div
                     key={report.upload_id || i}
@@ -145,7 +146,7 @@ export default function Reports() {
                     {/* Filename */}
                     <div className="flex-1 min-w-0">
                       <p className="font-serif text-[16px] md:text-[18px] text-[#1A1A1A] truncate group-hover:text-[#A67B5B] transition-colors duration-300">
-                        {report.filename || 'Untitled Report'}
+                        {report.file_name || 'Untitled Report'}
                       </p>
                     </div>
 

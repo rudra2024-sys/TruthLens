@@ -1,8 +1,17 @@
 import React from 'react'
 import { Link } from 'react-router-dom'
 import Logo from './Logo'
+import { getStoredUser, logout } from './api/client'
+
+const PRODUCT_LINKS = {
+  'Verify Media': '/verify',
+  'History': '/history',
+  'Reports': '/reports',
+}
 
 const Footer = () => {
+  const user = getStoredUser()
+
   return (
     <footer className="bg-[#1A1A1A] text-[#8A8580] py-16 md:py-20">
       <div className="max-w-[1400px] mx-auto px-6 md:px-12 lg:px-16">
@@ -20,13 +29,13 @@ const Footer = () => {
           <div className="md:col-span-2 md:col-start-6">
             <p className="text-[11px] tracking-[0.15em] uppercase text-[#F7F5F0] mb-4">Product</p>
             <ul className="space-y-3">
-              {['Verify Media', 'History', 'Reports'].map((item) => (
-                <li key={item}>
+              {Object.entries(PRODUCT_LINKS).map(([label, path]) => (
+                <li key={label}>
                   <Link
-                    to={`/${item.toLowerCase().replace(' ', '-')}`}
+                    to={path}
                     className="text-[14px] hover:text-[#F7F5F0] transition-colors duration-300"
                   >
-                    {item}
+                    {label}
                   </Link>
                 </li>
               ))}
@@ -52,16 +61,32 @@ const Footer = () => {
           <div className="md:col-span-2">
             <p className="text-[11px] tracking-[0.15em] uppercase text-[#F7F5F0] mb-4">Account</p>
             <ul className="space-y-3">
-              {['Log in', 'Sign Up'].map((item) => (
-                <li key={item}>
-                  <Link
-                    to={`/${item.toLowerCase().replace(' ', '')}`}
-                    className="text-[14px] hover:text-[#F7F5F0] transition-colors duration-300"
-                  >
-                    {item}
-                  </Link>
-                </li>
-              ))}
+              {user ? (
+                <>
+                  <li className="text-[14px] text-[#F7F5F0]">{user.name}</li>
+                  <li>
+                    <button
+                      onClick={() => { logout(); window.location.href = '/' }}
+                      className="text-[14px] hover:text-[#F7F5F0] transition-colors duration-300"
+                    >
+                      Log Out
+                    </button>
+                  </li>
+                </>
+              ) : (
+                <>
+                  <li>
+                    <Link to="/login" className="text-[14px] hover:text-[#F7F5F0] transition-colors duration-300">
+                      Log in
+                    </Link>
+                  </li>
+                  <li>
+                    <Link to="/signup" className="text-[14px] hover:text-[#F7F5F0] transition-colors duration-300">
+                      Sign Up
+                    </Link>
+                  </li>
+                </>
+              )}
             </ul>
           </div>
         </div>
