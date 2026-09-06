@@ -1,0 +1,14 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "overused-font",
+        "value": "inter",
+        "createdAt": "2026-09-05T17:47:54.995Z",
+        "reason": "Pre-existing typography choice (Inter body font), not introduced this session; already reasoned about and preserved when the visual system was redesigned this session. Same as the already-ignored lowercase 'inter' value from the @import URL, just the capitalized form used in font-family declarations."
+      }
+    ]
+  }
+}

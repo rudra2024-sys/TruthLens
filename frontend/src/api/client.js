@@ -109,6 +109,14 @@ export const getDetectionResult = async (uploadId) => {
   }
 }
 
+export const getUpload = async (uploadId) => {
+  try {
+    return await api.get(`/upload/${uploadId}`)
+  } catch (err) {
+    throw new Error(friendlyError(err))
+  }
+}
+
 export const reportUrl = (uploadId) =>
   `/api/v1/report/${uploadId}`
 

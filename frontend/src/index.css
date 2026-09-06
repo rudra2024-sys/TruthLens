@@ -1,67 +1,89 @@
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,500;0,600;1,400&family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,500;0,600;1,400&family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
-
+/*
+ * TruthLens visual system — "Forensic Evidence Bench".
+ *
+ * A near-black instrument-panel ground (not pure black — a warm-neutral
+ * graphite, the tone of a lab bench under one work light), warm brass as
+ * the single signal accent (the one thread kept from the previous warm
+ * editorial system, recalibrated here for dark-ground contrast), and
+ * semantic verdict colors recalibrated the same way. All pairings below
+ * are computed, not eyeballed — see the contrast note on each.
+ */
 :root {
-  --ivory: #F7F5F0;
-  --warm-white: #FAFAF8;
-  --charcoal: #1A1A1A;
-  --stone: #2D2D2D;
-  --warm-grey: #8A8580;
-  --soft-taupe: #B8B0A8;
-  --bronze: #A67B5B;
-  --deep-bronze: #7A5A3D;
-  --olive-muted: #6B6B5E;
-  --success: #5A7A5A;
-  --caution: #B89A6A;
-  --danger: #9A5A5A;
+  --ground: #0B0C0D;        /* page background */
+  --panel: #17181A;         /* instrument-panel surface (cards, nav, footer) */
+  --panel-raised: #1F2022;  /* hover/raised panel state */
+  --line: rgba(237,234,227,0.10);
+  --line-strong: rgba(237,234,227,0.20);
+
+  --bone: #EDEAE3;          /* primary text — warm off-white, not pure white */
+  --bone-dim: #9C9890;      /* secondary text — 6.8:1 on --ground, 5.9:1 on --panel */
+  --bone-faint: #6B6862;    /* tertiary / placeholder-weight text */
+
+  --brass: #C89361;         /* signal accent — 7.3:1 on --ground */
+  --brass-dim: rgba(200,147,97,0.35);
+  --brass-deep: #8F6238;
+
+  --verdict-real: #5FA968;    /* 6.2:1 on --panel */
+  --verdict-caution: #D9A94E; /* 8.2:1 on --panel */
+  --verdict-danger: #D16565;  /* 4.9:1 on --panel */
 }
 
 * { box-sizing: border-box; }
-html { scroll-behavior: smooth; }
+/* Deliberately no `scroll-behavior: smooth` on <html>: native smooth-scroll
+   retargets on every wheel/trackpad tick, which fights any scroll-linked
+   animation on the page (see the Home narrative) and is a direct cause of
+   scroll jank. Any programmatic scroll-to (the skip-to-verify link) jumps
+   instantly instead. */
 html, body, #root { min-height: 100%; }
 
 body {
   margin: 0;
   font-family: 'Inter', system-ui, sans-serif;
-  background: var(--ivory);
-  color: var(--charcoal);
+  background: var(--ground);
+  color: var(--bone);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   overflow-x: hidden;
 }
 
 ::selection {
-  background: rgba(166, 123, 91, 0.2);
-  color: var(--charcoal);
+  background: rgba(200, 147, 97, 0.28);
+  color: var(--bone);
 }
 
 ::-webkit-scrollbar { width: 6px; height: 6px; }
-::-webkit-scrollbar-track { background: var(--ivory); }
-::-webkit-scrollbar-thumb { background: var(--soft-taupe); border-radius: 6px; }
+::-webkit-scrollbar-track { background: var(--ground); }
+::-webkit-scrollbar-thumb { background: var(--bone-faint); border-radius: 6px; }
 
 .font-serif { font-family: 'Playfair Display', Georgia, serif; }
 .font-sans { font-family: 'Inter', system-ui, sans-serif; }
 .font-mono { font-family: 'JetBrains Mono', monospace; }
 
 /* Display sizes */
-.text-display-xl { font-size: clamp(3rem, 6vw, 4.5rem); line-height: 1.05; letter-spacing: -0.02em; }
-.text-display-l { font-size: clamp(2.5rem, 4vw, 3.5rem); line-height: 1.1; letter-spacing: -0.01em; }
-.text-display-m { font-size: clamp(1.75rem, 3vw, 2.625rem); line-height: 1.15; letter-spacing: -0.01em; }
+.text-display-xl { font-size: clamp(3rem, 6vw, 4.5rem); line-height: 1.05; letter-spacing: -0.02em; text-wrap: balance; }
+.text-display-l { font-size: clamp(2.5rem, 4vw, 3.5rem); line-height: 1.1; letter-spacing: -0.01em; text-wrap: balance; }
+.text-display-m { font-size: clamp(1.75rem, 3vw, 2.625rem); line-height: 1.15; letter-spacing: -0.01em; text-wrap: balance; }
 
 /* Animation Easings */
 .ease-smooth { transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1); }
 .ease-out-expo { transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1); }
 
-/* Grain texture overlay */
+/* Grain texture overlay — a physical-material cue for the instrument-panel
+   surface, not a generic "AI landing page" noise layer: kept faint and
+   fixed, same technique the previous system used, retextured for dark. */
 .tl-grain {
   position: fixed;
   inset: 0;
   pointer-events: none;
-  opacity: 0.025;
+  opacity: 0.05;
   z-index: 9999;
+  mix-blend-mode: overlay;
   background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 
@@ -78,7 +100,7 @@ body {
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  border: 1.5px solid var(--bronze);
+  border: 1.5px solid var(--brass);
   animation: scanPulse 2.5s cubic-bezier(0.22, 1, 0.36, 1) infinite;
 }
 .tl-scan-ring::after { animation-delay: 0.8s; }
@@ -98,6 +120,17 @@ body {
 .animate-delay-4 { animation-delay: 0.4s; opacity: 0; }
 .animate-delay-5 { animation-delay: 0.5s; opacity: 0; }
 
+/* Fresh-result glow — a one-time, restrained ring that fades on a History/
+   Reports entry uploaded within the last few minutes. Compositor-only
+   (box-shadow, not width/layout). */
+@keyframes freshGlow {
+  0% { box-shadow: 0 0 0 2px rgba(200,147,97,0.4); }
+  100% { box-shadow: 0 0 0 0px rgba(200,147,97,0); }
+}
+.tl-fresh {
+  animation: freshGlow 1.8s ease-out forwards;
+}
+
 /* Progress shimmer */
 @keyframes progressShimmer {
   0% { background-position: 200% 0; }
@@ -105,7 +138,7 @@ body {
 }
 
 .tl-progress-shimmer {
-  background: linear-gradient(90deg, var(--bronze) 0%, #C49A7A 50%, var(--bronze) 100%);
+  background: linear-gradient(90deg, var(--brass) 0%, #E0B583 50%, var(--brass) 100%);
   background-size: 200% 100%;
   animation: progressShimmer 2s ease-in-out infinite;
 }
@@ -116,7 +149,7 @@ body {
 }
 .btn-lift:hover {
   transform: translateY(-2px);
-  box-shadow: 0 8px 24px rgba(166, 123, 91, 0.2);
+  box-shadow: 0 8px 24px rgba(200, 147, 97, 0.25);
 }
 
 /* Card hover */
@@ -125,7 +158,7 @@ body {
 }
 .card-hover:hover {
   transform: translateY(-4px);
-  box-shadow: 0 12px 32px rgba(26, 26, 26, 0.08);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
 }
 
 /* Link underline */
@@ -137,32 +170,41 @@ body {
   position: absolute;
   bottom: -2px;
   left: 0;
-  width: 0;
-  height: 1px;
-  background: var(--bronze);
-  transition: width 0.3s cubic-bezier(0.22, 1, 0.36, 1);
-}
-.link-underline:hover::after {
   width: 100%;
+  height: 1px;
+  background: var(--brass);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.link-underline:hover::after,
+.link-underline:focus-visible::after {
+  transform: scaleX(1);
 }
 
-/* Nav blur */
-.nav-blur {
-  background: rgba(247, 245, 240, 0.85);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+/* Nav panel — a solid instrument-panel color swap on scroll, not a blurred
+   glass sheet. backdrop-filter: blur() is expensive to composite on a nav
+   that repaints every scroll frame; a flat panel color reads the same
+   "the surface underneath changed" cue at a fraction of the cost, and it
+   matches this system's material (metal panel, not glass) better than
+   frosted glass ever did. */
+.nav-panel {
+  background: rgba(11, 12, 13, 0.92);
+  border-bottom: 1px solid var(--line);
 }
 
 /* Upload zone */
 .upload-zone {
-  transition: all 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+  transition: background-color 0.4s cubic-bezier(0.22, 1, 0.36, 1), border-color 0.4s cubic-bezier(0.22, 1, 0.36, 1);
 }
 .upload-zone.drag-over {
-  border-color: var(--bronze);
-  background: rgba(166, 123, 91, 0.03);
+  border-color: var(--brass);
+  background: rgba(200, 147, 97, 0.05);
 }
 
-/* Noise dark */
+/* Fine material grain on raised panels — a subtle brushed-metal cue,
+   distinct from the page-level .tl-grain (kept for texture parity with
+   the previous system's naming, retuned for dark surfaces). */
 .tl-noise-dark {
   position: relative;
 }
@@ -170,8 +212,9 @@ body {
   content: '';
   position: absolute;
   inset: 0;
-  opacity: 0.03;
+  opacity: 0.04;
   pointer-events: none;
+  mix-blend-mode: overlay;
   background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 
@@ -188,3 +231,121 @@ body {
 .stagger-children > *:nth-child(6) { animation-delay: 0.3s; }
 .stagger-children > *:nth-child(7) { animation-delay: 0.35s; }
 .stagger-children > *:nth-child(8) { animation-delay: 0.4s; }
+/* Beyond the 8th item, stop staggering entirely — a History/Reports page
+   with 50+ rows should not accrue 50 individual animation delays. */
+.stagger-children > *:nth-child(n+9) { opacity: 1; animation: none; }
+
+/* ============================================================
+   Forensic / technical visual vocabulary — the instrument-panel
+   grammar reused across the whole app: mono readouts, tick-mark
+   rulers, calibration marks, and a scan-field backdrop.
+   ============================================================ */
+
+.tl-hud-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--bone-dim);
+}
+
+/* A faint ruled measurement strip — used behind technical readouts
+   (evidence metrics, gauge surrounds), never behind body copy. */
+.tl-ticks {
+  background-image: repeating-linear-gradient(
+    90deg,
+    var(--line-strong) 0px,
+    var(--line-strong) 1px,
+    transparent 1px,
+    transparent 8px
+  );
+  background-position: bottom;
+  background-repeat: repeat-x;
+  background-size: 100% 6px;
+}
+
+/* Inspection grid — an extremely faint crosshatch used as a large-scale
+   section backdrop to suggest "under a scanner", never a loud pattern. */
+.tl-inspection-grid {
+  background-image:
+    linear-gradient(var(--line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--line) 1px, transparent 1px);
+  background-size: 48px 48px;
+}
+
+/* Monospace figure treatment for technical numbers (confidence, ids,
+   timestamps, processing time) so they read as instrument readouts. */
+.tl-figure {
+  font-family: 'JetBrains Mono', monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Registration/calibration mark — a small cross-hair tick used to mark a
+   coordinate on the scan field or the corner of a specimen card, like a
+   print register mark. Pure CSS, no motion cost. */
+.tl-reg-mark {
+  position: relative;
+}
+.tl-reg-mark::before,
+.tl-reg-mark::after {
+  content: '';
+  position: absolute;
+  background: var(--line-strong);
+}
+.tl-reg-mark::before { top: 50%; left: -6px; width: 12px; height: 1px; }
+.tl-reg-mark::after { left: 50%; top: -6px; height: 12px; width: 1px; }
+
+/* Lens instrument — a slow, low-amplitude "staying in focus" breathe on
+   the forensic lens's glass highlight. Not scroll-driven; a restrained
+   sign of life independent of the scroll narrative. */
+@keyframes lensFocus {
+  from { opacity: 0.6; }
+  to { opacity: 1; }
+}
+.lens-highlight {
+  animation: lensFocus 4s ease-in-out infinite alternate;
+}
+
+/* Signal trace draw-on — an SVG stroke-dashoffset reveal used for the
+   Signal Extraction phase's waveform lines. GPU-cheap (paint only, the
+   path's geometry never changes), and the one place a "drawing itself in"
+   effect earns its keep: it IS the signal being extracted, not decoration
+   on top of a static line. */
+@keyframes traceDraw {
+  to { stroke-dashoffset: 0; }
+}
+.tl-trace-draw {
+  animation: traceDraw 1.4s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+/* ============================================================
+   Reduced motion.
+   The JS/framer-motion side (src/hooks/useReducedMotion.js) reads
+   prefers-reduced-motion and switches components to their built-in
+   reduced-motion fallback paths. These plain-CSS keyframe animations
+   aren't gated by that hook, so they're stopped here directly for
+   anyone who has requested reduced motion — default motion for
+   everyone else is unchanged.
+   ============================================================ */
+@media (prefers-reduced-motion: reduce) {
+  .tl-scan-ring::before,
+  .tl-scan-ring::after {
+    animation: none !important;
+    opacity: 0;
+  }
+  .animate-fade-in-up,
+  .stagger-children > *,
+  .tl-progress-shimmer,
+  .lens-highlight {
+    animation: none !important;
+    opacity: 1;
+  }
+  .tl-fresh {
+    animation: none !important;
+    box-shadow: none;
+  }
+  .tl-trace-draw {
+    animation: none !important;
+    stroke-dashoffset: 0 !important;
+  }
+}
