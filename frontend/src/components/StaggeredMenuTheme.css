@@ -1,0 +1,91 @@
+/*
+ * Scoped visual retheme for the React Bits StaggeredMenu (StaggeredMenu.jsx
+ * / StaggeredMenu.css are kept byte-for-byte as fetched from the registry).
+ * The stock panel is hardcoded white-with-black-text, which would clash
+ * with TruthLens's dark "examination station" ground. Every rule here is
+ * scoped under .staggered-menu-wrapper so nothing leaks into unrelated
+ * components, and no animation/timing/structural rule is touched.
+ */
+.staggered-menu-wrapper .staggered-menu-panel {
+  background: var(--panel, #17181a);
+  border-left: 1px solid var(--line-strong, rgba(237, 234, 227, 0.2));
+}
+
+.staggered-menu-wrapper[data-position='left'] .staggered-menu-panel {
+  border-left: none;
+  border-right: 1px solid var(--line-strong, rgba(237, 234, 227, 0.2));
+}
+
+.staggered-menu-wrapper .sm-panel-title {
+  color: var(--bone, #edeae3);
+}
+
+.staggered-menu-wrapper .sm-panel-item {
+  color: var(--bone, #edeae3);
+}
+
+.staggered-menu-wrapper .sm-panel-item:hover {
+  color: var(--sm-accent, #c89361);
+}
+
+.staggered-menu-wrapper .sm-socials-link {
+  color: var(--bone-dim, #9c9890);
+}
+
+.staggered-menu-wrapper .sm-socials-link:hover {
+  color: var(--sm-accent, #c89361);
+}
+
+.staggered-menu-wrapper .sm-toggle {
+  font-family: 'Inter', system-ui, sans-serif;
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.staggered-menu-wrapper .sm-panel-item {
+  font-family: 'Playfair Display', Georgia, serif;
+}
+
+/* The stock CSS inverts the logo below 1024px on the assumption the mobile
+   panel is light. TruthLens's panel is dark at every breakpoint (see
+   .staggered-menu-panel override above), so cancel that invert — same
+   selector specificity, placed after StaggeredMenu.css in the import
+   order, so it wins the cascade without touching the original file. */
+.staggered-menu-wrapper[data-open] .sm-logo-img {
+  filter: none;
+}
+
+/* TruthLens addition: the stock .sm-logo was a plain, non-interactive <div>
+   wrapping just an icon image. It is now a <button> (see StaggeredMenu.jsx)
+   carrying the icon plus the "TruthLens" wordmark, so it reads as the
+   brand mark it always visually implied, and doubles as a home link. This
+   only resets default <button> chrome and adds wordmark typography — no
+   change to the vendored StaggeredMenu.css layout rules. */
+.staggered-menu-wrapper .sm-logo-button {
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  gap: 0.6rem;
+}
+
+.staggered-menu-wrapper .sm-logo-text {
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: 18px;
+  letter-spacing: 0.01em;
+  color: var(--bone, #edeae3);
+  white-space: nowrap;
+  transition: color 0.25s;
+}
+
+.staggered-menu-wrapper .sm-logo-button:hover .sm-logo-text {
+  color: var(--sm-accent, #c89361);
+}
+
+@media (max-width: 480px) {
+  .staggered-menu-wrapper .sm-logo-text {
+    font-size: 16px;
+  }
+}

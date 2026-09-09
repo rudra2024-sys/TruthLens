@@ -1,7 +1,7 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { Image as ImageIcon, Video as VideoIcon, AudioLines, Upload as UploadIcon, Download } from 'lucide-react'
+import { Image as ImageIcon, Video as VideoIcon, AudioLines, Upload as UploadIcon, Download, Search, ChevronDown, RotateCcw } from 'lucide-react'
 import { uploadMedia, runDetection } from '../api/client'
 import { ACCEPTED_INPUT_ACCEPT, ACCEPTED_FORMAT_CHIPS } from '../lib/acceptedFormats'
 import VerdictBadge from './VerdictBadge'
@@ -14,6 +14,8 @@ import PixelGridScan from './scan/PixelGridScan'
 import WaveformScan from './scan/WaveformScan'
 import FilmstripScan from './scan/FilmstripScan'
 import Reveal from './Reveal'
+import Disclosure from './Disclosure'
+import SpecimenDossier from './SpecimenDossier'
 import { getVerdictInfo } from '../lib/verdict'
 
 /**
@@ -52,6 +54,8 @@ const fmtSize = (bytes) => {
   return `${(bytes / 1024 / 1024).toFixed(2)} MB`
 }
 
+const SCAN_LABEL = { image: 'Pixel Scan', video: 'Captured Frames', audio: 'Waveform', other: 'Specimen' }
+
 const SpecimenPreview = ({ file, active }) => {
   const kind = kindOf(file?.type)
   return (
@@ -78,6 +82,7 @@ export default function UploadFlow({ compact = false, showRecent = false, headin
   const [result, setResult] = useState(null)
   const [error, setError] = useState(null)
   const [recentFiles, setRecentFiles] = useState([])
+  const [inspectOpen, setInspectOpen] = useState(false)
   const fileInputRef = useRef(null)
   const navigate = useNavigate()
 
@@ -101,7 +106,7 @@ export default function UploadFlow({ compact = false, showRecent = false, headin
 
   const processFile = async (selectedFile) => {
     setFile(selectedFile); setError(null); setResult(null)
-    setUploading(true); setProgress(0); setDetectDone(false)
+    setUploading(true); setProgress(0); setDetectDone(false); setInspectOpen(false)
     try {
       const uploadRes = await uploadMedia(selectedFile, (p) => setProgress(p))
       const uploadId = uploadRes.data.upload_id
@@ -129,7 +134,7 @@ export default function UploadFlow({ compact = false, showRecent = false, headin
     }
   }
 
-  const reset = () => { setFile(null); setResult(null); setError(null); setProgress(0); setDetectDone(false) }
+  const reset = () => { setFile(null); setResult(null); setError(null); setProgress(0); setDetectDone(false); setInspectOpen(false) }
 
   const info = result ? getVerdictInfo(result.verdict || result.label) : null
 
@@ -233,7 +238,12 @@ export default function UploadFlow({ compact = false, showRecent = false, headin
           <ScanFrame gap={frameGapResult} armSize={frameArmResult} color="rgba(200,147,97,0.3)" />
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 sm:gap-0 mb-8">
             <p className="tl-hud-label !text-brass">Case Resolved</p>
-            <CaseTag id={result.uploadId} />
+            <div className="flex items-baseline gap-3">
+              <CaseTag id={result.uploadId} />
+              <span className="tl-figure text-[10px] text-bone-faint">
+                Logged {new Date(result.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              </span>
+            </div>
           </div>
 
           <div className="flex flex-col md:flex-row items-center gap-10 mb-10">
@@ -246,11 +256,58 @@ export default function UploadFlow({ compact = false, showRecent = false, headin
             <ConfidenceGauge value={result.confidence_score} accent={info.accent} size={gaugeSize} />
           </div>
 
+          {/* Examination Controls — the case isn't over just because the
+              verdict rendered: the specimen can still be inspected again,
+              or replaced outright, without leaving this card. */}
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.45, duration: 0.5 }}
+            className="flex items-center justify-between flex-wrap gap-4 pt-8 border-t border-line"
+          >
+            <p className="tl-hud-label !text-[9px]">Examination Controls</p>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setInspectOpen((o) => !o)}
+                aria-expanded={inspectOpen}
+                aria-controls="specimen-inspect-panel"
+                className="flex items-center gap-2 text-[11px] font-medium tracking-[0.08em] uppercase bg-panel-raised border border-line-strong text-bone px-4 py-2.5 rounded-[3px] btn-lift"
+              >
+                <Search size={13} strokeWidth={1.75} />
+                {inspectOpen ? 'Hide Specimen' : 'Inspect Specimen'}
+                <ChevronDown
+                  size={12}
+                  strokeWidth={1.75}
+                  style={{ transform: inspectOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.3s cubic-bezier(0.22,1,0.36,1)' }}
+                />
+              </button>
+              <button
+                type="button"
+                onClick={reset}
+                className="flex items-center gap-2 text-[11px] font-medium tracking-[0.08em] uppercase text-bone-dim hover:text-bone transition-colors duration-300 px-4 py-2.5 rounded-[3px] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brass"
+              >
+                <RotateCcw size={13} strokeWidth={1.75} />
+                Replace Specimen
+              </button>
+            </div>
+          </motion.div>
+
+          <Disclosure open={inspectOpen} id="specimen-inspect-panel">
+            <div className="grid md:grid-cols-2 gap-8 pt-8">
+              <div>
+                <p className="tl-hud-label !text-[9px] mb-3">{SCAN_LABEL[kindOf(file?.type)]} — captured from your file</p>
+                <SpecimenPreview file={file} active={false} />
+              </div>
+              <SpecimenDossier file={file} />
+            </div>
+          </Disclosure>
+
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 0.5, duration: 0.5 }}
-            className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-10 pt-8 border-t border-line"
+            className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-10 mt-10"
           >
             <div>
               <p className="text-[10px] tracking-[0.15em] uppercase text-bone-faint mb-1">File Type</p>
@@ -282,9 +339,6 @@ export default function UploadFlow({ compact = false, showRecent = false, headin
             <a href={`/api/v1/report/${result.uploadId}`} download className="flex items-center gap-2 text-[12px] font-medium tracking-[0.06em] text-bone-dim hover:text-bone transition-colors duration-300 link-underline px-4 py-3">
               <Download size={15} strokeWidth={1.75} /> Download PDF
             </a>
-            <button onClick={reset} className="text-[12px] font-medium tracking-[0.06em] text-bone-dim hover:text-bone transition-colors duration-300 ml-auto">
-              Analyze another
-            </button>
           </motion.div>
         </motion.div>
       )}

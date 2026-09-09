@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence, useAnimationControls } from 'framer-motion'
 import useReducedMotion from './hooks/useReducedMotion'
 import { Mail, Lock, AlertCircle } from 'lucide-react'
 import { login, saveAuth } from './api/client'
+import { useAuth } from './context/AuthContext'
 import AuthField from './components/AuthField'
 import Logo from './Logo'
 
@@ -14,6 +15,8 @@ export default function Login() {
   const [loading, setLoading] = useState(false)
   const controls = useAnimationControls()
   const reduced = useReducedMotion()
+  const navigate = useNavigate()
+  const { refresh } = useAuth()
 
   useEffect(() => {
     controls.start({ opacity: 1, y: 0, transition: { duration: reduced ? 0.2 : 0.5, ease: [0.22, 1, 0.36, 1] } })
@@ -26,7 +29,8 @@ export default function Login() {
     try {
       const response = await login(email, password)
       saveAuth(response.data)
-      window.location.href = '/'
+      refresh()
+      navigate('/')
     } catch (err) {
       setError(err.message)
       if (!reduced) controls.start({ x: [0, -8, 8, -5, 5, 0], transition: { duration: 0.45 } })

@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, computed_field
 from typing import Optional, List
 
 
@@ -30,10 +30,33 @@ class VideoAnalysisOut(BaseModel):
         from_attributes = True
 
 class AudioAnalysisOut(BaseModel):
-    wav2vec_score: float
-    lcnn_score: float
+    # DEPRECATED field names: kept only for backward compatibility with
+    # existing API consumers and the frontend. The active audio detector is
+    # AASIST, not Wav2Vec2 or LCNN -- neither of those models is run anywhere
+    # in this pipeline. See aasist_spoof_probability / aasist_spoof_probability_std
+    # below for the same values under honest names. Do not read these two as
+    # evidence that Wav2Vec2/LCNN were used.
+    wav2vec_score: float = Field(
+        description="DEPRECATED name. Actually holds AASIST's mean spoof probability. "
+                     "See aasist_spoof_probability."
+    )
+    lcnn_score: float = Field(
+        description="DEPRECATED name. Actually holds AASIST's cross-window spoof-probability "
+                     "std deviation. See aasist_spoof_probability_std."
+    )
+
     class Config:
         from_attributes = True
+
+    @computed_field(description="AASIST mean spoof probability across analyzed windows (0-1). Same value as wav2vec_score, under its real name.")
+    @property
+    def aasist_spoof_probability(self) -> float:
+        return self.wav2vec_score
+
+    @computed_field(description="AASIST spoof-probability standard deviation across analyzed windows (0-1). Same value as lcnn_score, under its real name.")
+    @property
+    def aasist_spoof_probability_std(self) -> float:
+        return self.lcnn_score
 
 
 class DetectionResultOut(BaseModel):

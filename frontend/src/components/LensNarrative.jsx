@@ -49,12 +49,22 @@ const CENTERS = RANGES.map(([s, e]) => (s + e) / 2)
 
 // Lens transform per phase, sampled at each phase's center and interpolated
 // smoothly between — the one continuous physical journey. cx/cy in vw/vh,
-// scale relative to the 200px base, rotate in degrees.
+// scale relative to the base px size, rotate in degrees.
+//
+// Sizing note: the lens is meant to read as the instrument's central,
+// visually dominant physical object, not a small decorative icon — SCALE is
+// shaped so every phase is substantially larger again (not a uniform
+// multiply), with the biggest proportional gain at the resting/early phases
+// where "too small" was most apparent, and the smallest gain at the
+// already-large verdict climax so it doesn't outgrow the section's
+// overflow-hidden safety net on the smallest "large" screens (1024px width,
+// ~700px height laptops) — verified empirically against that viewport, not
+// just calculated.
 const CX_VW = [14, -16, -28, 24, 30, -6, 0]
-const CY_VH = [-2, 6, -14, 4, -10, -4, -24]
-const SCALE = [1.0, 0.8, 0.5, 0.46, 0.4, 1.15, 2.3]
+const CY_VH = [-2, 6, -14, 4, -10, -4, -27]
+const SCALE = [1.7, 1.18, 0.79, 0.71, 0.64, 1.57, 2.07]
 const ROTATE = [-10, -2, 14, -10, 6, -4, 0]
-const BASE_LENS_PX = 200
+const BASE_LENS_PX = 280
 
 const SpecimenTag = ({ children }) => (
   <span className="tl-hud-label inline-flex items-center gap-2 !text-[9px]">
@@ -303,7 +313,13 @@ const DesktopLensExperience = () => {
 
         <a
           href="#verify-now"
-          className="absolute top-20 right-6 md:right-12 z-40 flex items-center gap-1.5 tl-hud-label !text-brass hover:!text-bone transition-colors duration-300"
+          /* top is derived from --tl-nav-height (the StaggeredMenu header's
+             real height) plus an explicit 16px gap, instead of a hardcoded
+             top-20 that was sized for the shorter pre-StaggeredMenu nav and
+             sat close enough to the current header to nearly collide with
+             its MENU toggle. */
+          className="absolute right-6 md:right-12 z-40 flex items-center gap-1.5 tl-hud-label !text-brass hover:!text-bone transition-colors duration-300"
+          style={{ top: 'calc(var(--tl-nav-height) + 16px)' }}
         >
           Skip to verify
           <ChevronDown size={12} strokeWidth={2} />
@@ -321,7 +337,10 @@ const DesktopLensExperience = () => {
 
 const MobilePhaseShell = ({ index, children }) => {
   const { icon: Icon, label } = PHASES[index]
-  const lensSize = Math.round(72 + index * 10)
+  // Bigger than before at every phase (72-132px → 96-168px), while staying
+  // safely inside even a 320px-wide phone once the loupe handle's ~1.68x
+  // visual footprint (see LensGlass) is accounted for.
+  const lensSize = Math.round(96 + index * 12)
   return (
     <div className="relative py-20 px-6 overflow-hidden bg-ground">
       <div className="absolute inset-0 tl-inspection-grid opacity-70" />
@@ -366,7 +385,10 @@ const StaticLensExperience = () => (
       <h1 className="font-serif text-display-xl text-bone mb-8">
         The instrument for what's <span className="italic text-brass">real.</span>
       </h1>
-      <LensGlass size={140} className="mx-auto mb-16">
+      {/* This fallback renders at every viewport width (no separate mobile
+          split like the animated version gets), so its size stays modest
+          enough to never overflow the narrowest supported phone (320px). */}
+      <LensGlass size={150} className="mx-auto mb-16">
         <ScanField />
       </LensGlass>
       <div className="grid sm:grid-cols-3 md:grid-cols-7 gap-6 text-left">

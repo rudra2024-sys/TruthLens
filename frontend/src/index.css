@@ -32,6 +32,15 @@
   --verdict-real: #5FA968;    /* 6.2:1 on --panel */
   --verdict-caution: #D9A94E; /* 8.2:1 on --panel */
   --verdict-danger: #D16565;  /* 4.9:1 on --panel */
+
+  /* Real measured height of the StaggeredMenu header (.staggered-menu-header:
+     2em top/bottom padding + content ~= 96px). Most pages still use a
+     hardcoded `pt-[72px]` left over from the pre-StaggeredMenu nav, which is
+     a separate, wider-reaching discrepancy not touched here (see hardening
+     notes) -- this token exists so anything that specifically needs to
+     clear the *current* header has one real number to reference instead of
+     a second guess. */
+  --tl-nav-height: 96px;
 }
 
 * { box-sizing: border-box; }

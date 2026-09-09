@@ -9,9 +9,17 @@ from app.services.models.video_model import score_video_path
 from app.services.models.audio_model import score_audio_path
 
 logger = logging.getLogger(__name__)
-MODEL_SERVICE_URL = os.getenv("MODEL_SERVICE_URL", "http://models:8001")
 
-def _post_json(url: str, data: dict, timeout: float = 60.0) -> dict | None:
+# Defaults to unset: the models/ Docker microservice is NOT part of
+# docker-compose.yml and is not deployed anywhere. Defaulting this to a
+# hostname that doesn't resolve outside Docker meant every single request
+# paid a real, measured ~2.9s DNS-failure penalty before falling back to the
+# local in-process model (see audit, Sep 2026). Set MODEL_SERVICE_URL
+# explicitly in the environment only if that microservice is actually
+# deployed alongside this backend.
+MODEL_SERVICE_URL = os.getenv("MODEL_SERVICE_URL", "")
+
+def _post_json(url: str, data: dict, timeout: float = 5.0) -> dict | None:
     try:
         payload = json.dumps(data).encode("utf-8")
         req = urllib.request.Request(

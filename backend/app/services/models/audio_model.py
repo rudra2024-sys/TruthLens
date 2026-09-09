@@ -14,6 +14,21 @@ TARGET_SR = 16000
 WINDOW_SAMPLES = 64600  # ~4.04s at 16kHz, AASIST's trained input length
 MAX_WINDOWS = 12  # cap work on very long files
 
+# Which output column of the AASIST logits is "spoof" vs "bonafide".
+#
+# THIS IS AN UNVALIDATED ASSUMPTION, not a confirmed fact. It comes from a
+# code-comment convention only ("[spoof, bonafide]" in sessions.py), and has
+# never been checked against real labeled bonafide/spoof audio: no such data
+# exists anywhere in this repository or (per an exhaustive prior whole-drive
+# search) on the development machine. For a 2-class softmax,
+# probs[:, 0] == 1 - probs[:, 1] always, so probability math alone cannot
+# distinguish the two possible orientations -- only real labeled data can.
+#
+# Do NOT flip this without empirical evidence (running known bonafide and
+# known spoof audio through score_audio_path and confirming the direction).
+# Flipping it blind would just swap which unverified assumption is active.
+SPOOF_CLASS_INDEX = 0
+
 
 def decode_audio_mono_16k(path: str) -> np.ndarray:
     """Decode any container PyAV/ffmpeg supports (wav/mp3/flac/m4a/...) to mono float32 @16kHz."""
@@ -67,10 +82,10 @@ def score_audio_path(path: str) -> dict:
     duration_s = float(samples.shape[0] / TARGET_SR)
 
     windows = build_windows(samples)
-    logits = aasist_predict_logits(windows)  # (N, 2) -> [spoof, bonafide]
+    logits = aasist_predict_logits(windows)  # (N, 2) -> [spoof, bonafide] (unvalidated, see SPOOF_CLASS_INDEX)
     exp = np.exp(logits - logits.max(axis=1, keepdims=True))
     probs = exp / exp.sum(axis=1, keepdims=True)
-    spoof_probs = probs[:, 0]
+    spoof_probs = probs[:, SPOOF_CLASS_INDEX]
 
     return {
         "spoof_probability": float(spoof_probs.mean()),

@@ -7,6 +7,7 @@ import LoadingState from './components/LoadingState'
 import CaseTag from './components/CaseTag'
 import Reveal from './components/Reveal'
 import { isFresh } from './lib/freshness'
+import { stationTag } from './lib/stations'
 
 export default function Reports() {
   const [reports, setReports] = useState([])
@@ -40,7 +41,7 @@ export default function Reports() {
 
       <section className="pt-16 md:pt-24 pb-12 border-b border-line">
         <div className="max-w-[1400px] mx-auto px-6 md:px-12 lg:px-16">
-          <p className="tl-hud-label mb-4">Evidence Registry</p>
+          <p className="tl-hud-label mb-4">{stationTag(4)} — Evidence Registry</p>
           <div className="flex items-end justify-between flex-wrap gap-6">
             <h1 className="font-serif text-display-l text-bone">
               Every verdict,<br /><span className="italic text-brass">indexed.</span>

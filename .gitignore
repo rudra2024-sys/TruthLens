@@ -47,6 +47,7 @@ build/
 # ---- Runtime-generated app data (uploads, DB, reports) ----
 backend/uploads/
 backend/reports/
+backend/_smoke_test_fixtures/
 models/uploads/
 models/reports/
 legacy/uploads/
@@ -85,9 +86,5 @@ Thumbs.db
 # ---- Claude Code local tooling (dev-server launch config, not app config) ----
 .claude/
 
-# Ruflo local secrets and runtime data
 .env.local
 .env.*.local
-.claude-flow/data/
-.claude-flow/logs/
-.claude-flow/sessions/

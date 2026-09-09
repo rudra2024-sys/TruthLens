@@ -19,3 +19,4 @@ bcrypt==4.0.1
 email-validator
 av
 onnxruntime
+opencv-python-headless<5

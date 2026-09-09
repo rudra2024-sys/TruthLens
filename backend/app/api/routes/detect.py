@@ -1,13 +1,17 @@
+import logging
+
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.core.database import get_db
 from app.models.models import Upload, DetectionResult
 from app.schemas.schemas import DetectionResultOut
+from app.services.detection_errors import UnprocessableMediaError
 from app.services.image.detector import run_image_detection
 from app.services.video.detector import run_video_detection
 from app.services.audio.detector import run_audio_detection
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/detect", tags=["Detection"])
 
 
@@ -29,8 +33,14 @@ async def run_detection(upload_id: str, db: AsyncSession = Depends(get_db)):
             raise HTTPException(400, f"Unsupported media type: {upload.media_type}")
     except HTTPException:
         raise
-    except Exception as e:
-        raise HTTPException(500, f"Detection pipeline failed: {str(e)}")
+    except UnprocessableMediaError as e:
+        raise HTTPException(422, str(e))
+    except FileNotFoundError:
+        logger.exception("Upload record found but file missing on disk (upload_id=%s)", upload_id)
+        raise HTTPException(500, "The uploaded file is no longer available on the server. Please upload it again.")
+    except Exception:
+        logger.exception("Detection pipeline failed unexpectedly (upload_id=%s)", upload_id)
+        raise HTTPException(500, "Detection failed due to an internal error. Please try again or contact support.")
 
     # Re-fetch fully (relationships are lazy="selectin" so this is always safe)
     r2 = await db.execute(select(DetectionResult).where(DetectionResult.result_id == result_id))

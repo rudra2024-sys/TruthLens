@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.models import Upload, DetectionResult, AudioAnalysis
 from app.core.config import settings
+from app.services.detection_errors import UnprocessableMediaError
 from app.services.models.model_client import run_audio_model
 
 
@@ -19,8 +20,17 @@ async def run_audio_detection(upload: Upload, db: AsyncSession) -> str:
             f"Uploaded audio not found at {path}"
         )
 
-    # Run the real AASIST audio model
-    model_result = run_audio_model(path)
+    # Run the real AASIST audio model. PyAV's decode errors
+    # (av.error.FFmpegError and subclasses) are ValueError subclasses, so
+    # this also covers the explicit ValueErrors raised by build_windows()
+    # for empty/undecodable audio.
+    try:
+        model_result = run_audio_model(path)
+    except ValueError as e:
+        raise UnprocessableMediaError(
+            "The uploaded file could not be read as audio. "
+            "It may be corrupt or in an unsupported format."
+        ) from e
 
     spoof_probability = float(
         model_result.get("spoof_probability", 0.0)

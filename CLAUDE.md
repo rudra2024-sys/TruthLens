@@ -24,7 +24,7 @@ tl/
 │       ├── pipelines/image/   ConvNeXt-Tiny inference (the real trained image model)
 │       └── services/
 │           ├── image/detector.py    → calls pipelines/image (ConvNeXt-Tiny)
-│           ├── video/detector.py    → calls services/heuristics.py (byte-entropy heuristic)
+│           ├── video/detector.py    → calls video/backend.py (swappable; default: model_v1/optimized.py)
 │           ├── audio/detector.py    → calls services/models/model_client.py → AASIST (ONNX)
 │           ├── models/               pretrained model code (AASIST, MesoNet) + model_client.py
 │           ├── report/generator.py   real PDF generation (ReportLab), not a stub
@@ -93,6 +93,22 @@ instead of a bare crash — keep this when touching `main.py`.
   `backend/app/services/image/detector.py`.
 - **Audio — Wav2Vec2 + LCNN**: exists **separately**, not yet integrated into this codebase.
   Will be integrated later — do not wire it in without explicit instruction.
+- **Video — Video Model v1 (EfficientNet-B0, epoch 11)**: `backend/app/services/video/model_v1/`
+  (`common.py`/`baseline.py`/`optimized.py`). Checkpoint: **`backend/checkpoints/video/
+  epoch_11_model_only.pt`** (~16MB, gitignored). This is now the **active production video
+  detector**, wired via `backend/app/services/video/backend.py`'s `VideoModelV1Backend`
+  (selected by default; override with `VIDEO_MODEL_BACKEND=heuristic` to fall back to the old
+  byte-entropy heuristic below). Line-by-line verified against a recovered original Celeb-DF-v2
+  evaluation script — see git history on `app/services/video/model_v1/` for the full
+  parity-verification trail (frame sampling via `np.linspace(...).astype(int)`, Haar
+  frontal-face detection with 20% padding and a center-square/empty-crop fallback, PIL
+  `BILINEAR` resize — not `cv2.resize`, they differ — ImageNet normalization, 16-frame
+  mean-logit pooling, sigmoid, threshold 0.525). `optimized.py` is the fast path (cached model
+  + Haar cascade, batched forward pass, `grab()`-skip decoding); `baseline.py` is a slower,
+  literal reference implementation kept for regression testing, not used in production.
+  Videos shorter than 16 frames raise `common.ShortVideoError` (mapped to a 422 via
+  `UnprocessableMediaError`), matching the original evaluator's behavior rather than inventing
+  a fallback — the original's real Celeb-DF-v2 run reported 0 such errors across 6,529 videos.
 
 ### Pretrained (not trained by this team, but real trained DNNs)
 - **Audio — AASIST** (Jung et al., ICASSP 2022), pretrained on ASVspoof2019-LA, ONNX weights
@@ -109,19 +125,19 @@ instead of a bare crash — keep this when touching `main.py`.
   face-forgery detection, present in `backend/app/services/models/{sessions,image_model,
   video_model}.py` and wired into `model_client.run_image_model` / `run_video_model`. **Not
   used by the active detectors** — `image/detector.py` calls ConvNeXt directly and
-  `video/detector.py` calls the heuristic directly, bypassing `model_client` entirely for
-  both. MesoNet is present but currently dead in the live request path. A further audio model
-  is also currently being trained separately and is not yet in this repo.
+  `video/detector.py` goes through `video/backend.py`'s `VideoModelV1Backend` (EfficientNet-B0,
+  see above), bypassing `model_client` entirely for both. MesoNet is present but currently dead
+  in the live request path. A further audio model is also currently being trained separately
+  and is not yet in this repo.
 
 ### Heuristic (real computation, no trained model)
-- **Video**: `backend/app/services/heuristics.py::analyze_video()` — samples 12 raw byte
-  windows from the file and computes Shannon entropy statistics over those bytes. This does
-  **not** decode frames, faces, or any actual video signal. Labeled in the DB/UI as
-  `model_used: "Video forensic heuristics v1"` — that label is accurate (it says
-  "heuristics"), but the PDF report's "Structure Entropy Score" / "Byte Consistency Score"
-  language reads more forensic than the underlying computation is. This is **not** the final
-  video ML solution and is expected to be replaced later — do not present it to users as
-  equivalent in rigor to the image/audio pipelines.
+- **Video (fallback only, no longer the default)**: `backend/app/services/heuristics.py::
+  analyze_video()` — samples 12 raw byte windows from the file and computes Shannon entropy
+  statistics over those bytes. This does **not** decode frames, faces, or any actual video
+  signal. Still wired as `HeuristicVideoBackend` in `video/backend.py` and selectable via
+  `VIDEO_MODEL_BACKEND=heuristic`, but Video Model v1 (above) is now the default. Kept
+  registered rather than deleted per the "don't delete without flagging" rule, in case Video
+  Model v1 needs a quick rollback.
 
 ### Placeholder / mock / dead code — do not wire these in
 - `backend/app/services/ml_pipeline.py` — a `LightweightMLPipeline` class with hardcoded,
@@ -176,6 +192,9 @@ Only touch it for a concrete, reproducible bug.
 | `FAKE_THRESHOLD` | `core/config.py` | `0.5` | verdict cutoff, used by video/audio `_verdict()` |
 | `IMAGE_MODEL_CHECKPOINT` | `pipelines/image/model.py` | `backend/checkpoints/image/convnext_tiny_best.pth` | override to point at `models/checkpoints/image/convnext_tiny_best.pth` when running outside Docker |
 | `IMAGE_MODEL_DEVICE` | `pipelines/image/model.py` | `auto` (cuda if available, else cpu) | `cpu`/`cuda` |
+| `VIDEO_MODEL_BACKEND` | `services/video/backend.py` | `model_v1` | `heuristic` to fall back to the old byte-entropy heuristic |
+| `VIDEO_MODEL_V1_CHECKPOINT` | `services/video/model_v1/common.py` | `backend/checkpoints/video/epoch_11_model_only.pt` | absolute path recommended when running outside Docker |
+| `VIDEO_MODEL_V1_DEVICE` | `services/video/model_v1/common.py` | `auto` (cuda if available, else cpu) | `cpu`/`cuda` |
 | `MODEL_SERVICE_URL` | `services/models/model_client.py` | `http://models:8001` | only relevant if the `models/` microservice is actually deployed as a docker-compose service, which it currently is not |
 | `AUTH_SECRET_KEY` | `core/security.py` | insecure dev default | **must** override for any real deployment |
 | `DEBUG` | `core/config.py` | `true` | |

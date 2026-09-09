@@ -1,9 +1,10 @@
 import React from 'react'
 import UploadFlow from './components/UploadFlow'
+import { stationTag } from './lib/stations'
 
 const heading = (
   <div className="text-center mb-12">
-    <p className="tl-hud-label !text-brass mb-4">Intake Desk</p>
+    <p className="tl-hud-label !text-brass mb-4">{stationTag(2)} — Intake Desk</p>
     <h1 className="font-serif text-display-l text-bone mb-6">
       Place it under<br />
       <span className="italic text-brass">the lens.</span>

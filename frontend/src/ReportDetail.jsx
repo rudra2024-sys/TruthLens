@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { AlertCircle, Download, ArrowLeft } from 'lucide-react'
+import { AlertCircle, Download, ArrowLeft, ChevronDown } from 'lucide-react'
 import { getDetectionResult, getUpload, reportUrl } from './api/client'
 import VerdictSeal from './components/VerdictSeal'
 import VerdictBadge from './components/VerdictBadge'
@@ -10,7 +10,9 @@ import ScanFrame from './components/ScanFrame'
 import CaseTag from './components/CaseTag'
 import Reveal from './components/Reveal'
 import LoadingState from './components/LoadingState'
+import Disclosure from './components/Disclosure'
 import { getVerdictInfo } from './lib/verdict'
+import { stationTag } from './lib/stations'
 
 /**
  * Evidence rows are labeled for what the backend actually computed, per
@@ -31,9 +33,9 @@ function EvidenceRows({ result }) {
   }
   if (result.video_analysis) {
     const a = result.video_analysis
-    rows.push(['Structure score (heuristic)', `${(a.xception_score * 100).toFixed(1)}%`])
+    rows.push(['Video fake probability', `${(a.xception_score * 100).toFixed(1)}%`])
     if (a.face_voice_sync != null) rows.push(['Consistency score (heuristic)', `${(a.face_voice_sync * 100).toFixed(1)}%`])
-    rows.push(['Byte windows sampled', String(a.frames_analyzed)])
+    rows.push(['Frames analyzed', String(a.frames_analyzed)])
   }
   if (result.audio_analysis) {
     const a = result.audio_analysis
@@ -62,6 +64,7 @@ export default function ReportDetail() {
   const [upload, setUpload] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [logOpen, setLogOpen] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -107,8 +110,14 @@ export default function ReportDetail() {
       <div className="tl-grain" />
       <div className="max-w-[900px] mx-auto px-6 py-16 md:py-20">
         <Reveal>
+          <Link
+            to="/history"
+            className="inline-flex items-center gap-2 mb-6 text-[13px] font-medium tracking-[0.06em] text-bone-dim hover:text-brass transition-colors duration-300 link-underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brass rounded-[2px]"
+          >
+            <ArrowLeft size={14} strokeWidth={1.75} /> Back to Case Archive
+          </Link>
           <div className="flex items-center justify-between mb-3">
-            <p className="tl-hud-label">Forensic Case File</p>
+            <p className="tl-hud-label">{stationTag(5)} — Forensic Case File</p>
             <CaseTag id={result.upload_id} />
           </div>
           <h1 className="font-serif text-[36px] md:text-[42px] text-bone mb-1 break-all">
@@ -157,14 +166,33 @@ export default function ReportDetail() {
               </div>
             </motion.div>
 
-            {/* Evidence */}
+            {/* Evidence — progressive disclosure: the verdict above is the
+                conclusion of the examination, this is the detail behind it,
+                revealed on request rather than dumped alongside it. */}
             {(result.image_analysis || result.video_analysis || result.audio_analysis) && (
               <motion.div
                 initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.4, duration: 0.5 }}
                 className="mb-10"
               >
-                <p className="tl-hud-label mb-4">Inspection Log</p>
-                <EvidenceRows result={result} />
+                <button
+                  type="button"
+                  onClick={() => setLogOpen((o) => !o)}
+                  aria-expanded={logOpen}
+                  aria-controls="inspection-log-panel"
+                  className="w-full flex items-center justify-between gap-3 py-1 tl-hud-label !text-bone hover:!text-brass transition-colors duration-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brass rounded-[2px]"
+                >
+                  <span>{logOpen ? 'Hide Inspection Log' : 'View Inspection Log'}</span>
+                  <ChevronDown
+                    size={13}
+                    strokeWidth={1.75}
+                    style={{ transform: logOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.3s cubic-bezier(0.22,1,0.36,1)' }}
+                  />
+                </button>
+                <Disclosure open={logOpen} id="inspection-log-panel">
+                  <div className="pt-4">
+                    <EvidenceRows result={result} />
+                  </div>
+                </Disclosure>
               </motion.div>
             )}
 

@@ -1,5 +1,5 @@
 import React from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import Logo from './Logo'
 import { useAuth } from './context/AuthContext'
 
@@ -11,6 +11,7 @@ const PRODUCT_LINKS = {
 
 const Footer = () => {
   const { user, logout } = useAuth()
+  const navigate = useNavigate()
 
   return (
     <footer className="bg-panel text-bone-dim py-16 md:py-20 border-t border-line">
@@ -61,7 +62,7 @@ const Footer = () => {
                   <li className="text-[14px] text-bone">{user.name}</li>
                   <li>
                     <button
-                      onClick={() => { logout(); window.location.href = '/' }}
+                      onClick={() => { logout(); navigate('/') }}
                       className="text-[14px] hover:text-bone transition-colors duration-300"
                     >
                       Log Out

@@ -7,6 +7,7 @@ import LoadingState from './components/LoadingState'
 import CaseTag from './components/CaseTag'
 import Reveal from './components/Reveal'
 import { isFresh } from './lib/freshness'
+import { stationTag } from './lib/stations'
 
 const getFileIcon = (type) => {
   if (!type) return <ImageIcon size={14} strokeWidth={1.5} />
@@ -55,7 +56,7 @@ export default function History() {
 
       <section className="pt-16 md:pt-24 pb-12 border-b border-line">
         <div className="max-w-[1400px] mx-auto px-6 md:px-12 lg:px-16">
-          <p className="tl-hud-label mb-4">Case Archive</p>
+          <p className="tl-hud-label mb-4">{stationTag(3)} — Case Archive</p>
           <div className="flex items-end justify-between flex-wrap gap-6">
             <h1 className="font-serif text-display-l text-bone">
               Every investigation,<br /><span className="italic text-brass">on record.</span>

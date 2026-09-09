@@ -2,6 +2,7 @@ import React from 'react'
 import { Link } from 'react-router-dom'
 import Logo from './Logo'
 import Reveal from './components/Reveal'
+import { stationTag } from './lib/stations'
 
 const ArrowRight = () => (
   <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
@@ -22,6 +23,7 @@ export default function About() {
         <div className="max-w-[1400px] mx-auto px-6 md:px-12 lg:px-16 relative z-10">
           <div className="grid lg:grid-cols-12 gap-12">
             <div className="lg:col-span-7">
+              <p className="tl-hud-label !text-brass mb-6">{stationTag(6)} — About</p>
               <h1 className="font-serif text-display-xl text-bone mb-8">
                 We built TruthLens<br />
                 because truth<br />
@@ -30,8 +32,8 @@ export default function About() {
             </div>
             <div className="lg:col-span-5 lg:pt-20">
               <p className="text-[17px] leading-[1.8] text-bone-dim">
-                In 2023, a team of researchers, engineers, and designers came together with a shared
-                concern: the tools to deceive were becoming more powerful than the tools to detect deception.
+                TruthLens is a final-year forensic media analysis project, built to explore how far
+                real detection models — not gimmicks — can go toward answering one question: is this real?
               </p>
             </div>
           </div>
@@ -166,7 +168,7 @@ export default function About() {
                 <span className="italic text-brass">clearly.</span>
               </h2>
               <p className="text-[17px] leading-[1.8] text-bone-dim mb-10 max-w-[480px]">
-                TruthLens is free to use for individual verifications. No account required for your first scan.
+                Create a free account to run your first verification — every case you submit is saved to your own history.
               </p>
               <div className="flex items-center gap-6">
                 <Link to="/verify" className="group flex items-center gap-3 bg-brass text-ground px-8 py-4 rounded-[3px] text-[13px] font-medium tracking-[0.08em] uppercase btn-lift">
