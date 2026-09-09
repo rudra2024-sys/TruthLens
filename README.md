@@ -1,112 +1,90 @@
-# TruthLens — AI-Generated Media Detection Platform
+# TruthLens
 
-VIT Mumbai | Department of Information Technology | 2025-26
+**AI-generated media detection.** Upload an image, video, or audio clip and get a verdict
+(REAL / FAKE / UNCERTAIN), a confidence score, and a downloadable PDF forensic report.
 
----
-
-## What actually works right now (verified end-to-end)
-
-- ✅ Upload images, video, or audio through a real drag-and-drop UI
-- ✅ File validation (type, size, empty-file checks) with real error messages
-- ✅ Full backend pipeline: upload → store → route to image/video/audio detector → save to DB → return result
-- ✅ Real SQLite database persisting every upload and result
-- ✅ Real dashboard (stats computed from the DB, not hardcoded)
-- ✅ Real history log of every scan
-- ✅ Real downloadable PDF forensic report (generated server-side with ReportLab)
-- ✅ Proper error handling — network errors, validation errors, and server errors all surface as readable messages, with retry
-- ✅ No unhandled exceptions — the previous "Something went wrong" bug is fixed (see below)
-
-## What is NOT yet real
-
-The **detection scores themselves** (EfficientNet, XceptionNet, wav2vec2, FFT, LCNN) are currently
-**deterministic placeholder values**, not the output of trained models. The architecture, database
-schema, API contracts, and UI are all built to receive real model output — but no model has been
-trained or plugged in yet. This was always the agreed phased plan (skeleton → image → audio → video),
-and training real models is genuinely multi-day work per pipeline (dataset download, GPU training,
-evaluation) that cannot be done inside a chat response.
-
-**Where to plug in a real model:** `backend/app/services/{image,video,audio}/detector.py` — each file
-has a single clearly-marked block computing the stub scores. Replace that block with real inference
-and everything downstream (DB, API, dashboard, PDF report) works unchanged.
+Final-year project — Dept. of Information Technology, VIT Mumbai, 2025–26.
 
 ---
 
-## The bug that was breaking every upload
+## What it does
 
-The previous version returned a SQLAlchemy object directly from `POST /detect/{id}` without eagerly
-loading its related scoring tables. Under async SQLAlchemy, touching a not-yet-loaded relationship
-outside of an active DB session throws a `MissingGreenlet` error — a real 500 error that the frontend
-had no way to explain, so it just showed "Something went wrong."
+TruthLens runs three independent detectors, one per media type:
 
-**Fix:** all relationships now declare `lazy="selectin"`, so they're always loaded safely regardless
-of which route touches them. The main app also has a global exception handler so any future backend
-error returns a readable message instead of a silent failure.
+| Media | Model | Trained on | What it actually detects |
+|---|---|---|---|
+| **Image** | ConvNeXt-Tiny (fine-tuned by this team) | CIFAKE | Real photograph vs. AI-generated image |
+| **Video** | EfficientNet-B0 (fine-tuned by this team) | Celeb-DF-v2 | Face-swap deepfake detection |
+| **Audio** | AASIST (pretrained, Jung et al. ICASSP 2022) | ASVspoof2019-LA | Real speech vs. synthetic/cloned (TTS) speech |
 
----
+Only the video model is a "deepfake detector" in the strict sense (manipulation of a real
+person's face). Image and audio are real-vs-synthetic classifiers — the umbrella term
+"AI-generated media detection" is used deliberately for the product as a whole.
 
-## Setup
+Every result includes a confidence score, and scores close to the decision threshold are
+returned as **UNCERTAIN** rather than a forced call — the app never presents a low-confidence
+guess as a certain verdict.
 
-### Backend (Docker)
+## Stack
+
+- **Backend:** FastAPI (Python), SQLAlchemy (async) over SQLite, JWT auth
+- **Frontend:** React + Vite, Tailwind
+- **ML:** PyTorch (image, video), ONNX Runtime (audio)
+- **Reports:** server-generated PDF (ReportLab)
+- **Deploy:** Docker Compose (backend + frontend)
+
+## Running it locally
+
+### 1. Docker Desktop
+Install and open it — make sure the engine is running.
+
+### 2. Clone
+```bash
+git clone https://github.com/rudra2024-sys/TruthLens.git
+cd TruthLens
+```
+
+### 3. Get the model checkpoints
+Two files aren't in this repo (too large for git) — ask a teammate who has them for:
+
+| File | Size | Place it at |
+|---|---|---|
+| `convnext_tiny_best.pth` | ~319 MB | `models/checkpoints/image/convnext_tiny_best.pth` |
+| `epoch_11_model_only.pt` | ~16 MB | `backend/checkpoints/video/epoch_11_model_only.pt` |
+
+(Create the `checkpoints/...` folders if they don't already exist — they're gitignored, so a
+fresh clone won't have them.) Audio needs no extra setup — its weights are small enough to
+already be committed.
+
+Without the checkpoints, the app still runs, but image/video verification will fail with an
+error; audio verification works out of the box.
+
+### 4. Start it
 ```bash
 docker-compose up --build
 ```
-Runs at `http://localhost:8000` — Swagger docs at `http://localhost:8000/docs`
+First run takes a few minutes. Once it's up:
+- App: **http://localhost:3000**
+- API docs: **http://localhost:8000/docs**
 
-### Frontend
-```bash
-cd frontend
-npm install
-npm run dev
-```
-Runs at `http://localhost:3000` (or next free port if 3000 is taken)
+### 5. Sign up
+Each machine has its own local database — sign up for a fresh account. Your history, uploads,
+and reports are private to your account and won't be visible to (or from) anyone else's.
 
----
+To stop: `Ctrl+C`, then `docker-compose down`. To restart later: `docker-compose up` (no
+`--build` needed unless the code changed).
 
-## Testing it end-to-end
+## Honest limitations
 
-1. Open the app, go to the **Scan** tab
-2. Drop any JPG/PNG/MP4/WAV file
-3. Watch it upload (progress bar) → detect (scan animation) → show a full result: verdict, confidence gauge, pipeline score breakdown, model used, processing time
-4. Click **Download Forensic PDF Report** — a real PDF downloads
-5. Go to **Dashboard** — see the scan reflected in stats and recent activity
-6. Go to **History** — see the full log, download any past report
+- The image and audio models were trained on narrow benchmark datasets (CIFAKE, ASVspoof2019-LA)
+  and don't fully generalize to arbitrary real-world uploads yet — a real photo or a real audio
+  recording can sometimes be misclassified. This is disclosed here deliberately rather than
+  overclaiming accuracy.
+- The video model's validated accuracy is ROC-AUC 0.695 on Celeb-DF-v2 (verified line-by-line
+  against the original evaluator, 6,529 videos, 0 inference errors) — an honest number, not
+  inflated.
 
-If any step fails, the UI will show the actual error text (not a generic message) — screenshot it and that tells us exactly what's wrong.
+## Project docs
 
----
-
-## Project structure
-
-```
-backend/app/
-├── api/routes/       upload.py, detect.py, dashboard.py, report.py
-├── core/              config.py, database.py
-├── models/            SQLAlchemy models (all relationships eager-loaded)
-├── schemas/           Pydantic response schemas
-└── services/
-    ├── image/         detector.py  ← plug in EfficientNet here
-    ├── video/         detector.py  ← plug in XceptionNet here
-    ├── audio/         detector.py  ← plug in wav2vec2 here
-    └── report/         generator.py (real PDF generation, already working)
-
-frontend/src/
-├── components/NavShell.jsx
-├── pages/             Dashboard.jsx, Scan.jsx, HistoryPage.jsx
-└── api/client.js       all backend calls, centralized error handling
-```
-
-## Next real milestone
-
-Train and plug in the **image pipeline** first (EfficientNet-B4 fine-tuned on CIFAKE — see the Dataset
-Reference Guide). That's the fastest path to one fully real, trained pipeline, which is usually enough
-for a strong FYP demo even before video/audio are trained.
-
-## Developer note (local dev)
-
-- The frontend dev server proxies `/api` to the backend. I fixed a misconfiguration where the
-    proxy was pointing to port `8010`; it now targets `http://localhost:8000` which matches the
-    backend in `docker-compose.yml`.
-- If you're running the frontend directly (not via the dev server), ensure API calls reach
-    `http://localhost:8000/api/v1` or update the hosting config appropriately.
-- I could not create a git commit from this environment because the workspace is not a git
-    repository here. Please commit the `vite.config.js` change locally if you want it tracked.
+`CLAUDE.md` in the repo root is the maintained source of truth for architecture, what's real
+vs. dead code, environment variables, and detailed dev setup — read it before making changes.
