@@ -105,11 +105,27 @@ const PageTransition = ({ children, pathKey }) => {
   )
 }
 
+/**
+ * React Router doesn't reset scroll position on navigation by default --
+ * without this, following a link/redirect while scrolled down a page
+ * leaves the next page scrolled down too, landing the visitor mid-content
+ * instead of at its top.
+ */
+const ScrollToTop = () => {
+  const { pathname } = useLocation()
+  React.useEffect(() => {
+    window.scrollTo(0, 0)
+  }, [pathname])
+  return null
+}
+
 function AnimatedRoutes() {
   const location = useLocation()
   const p = location.pathname
   return (
-    <Routes>
+    <>
+      <ScrollToTop />
+      <Routes>
       <Route path="/" element={<Layout><PageTransition pathKey={p}><Home /></PageTransition></Layout>} />
       <Route
         path="/verify"
@@ -161,7 +177,8 @@ function AnimatedRoutes() {
         }
       />
       <Route path="*" element={<Layout><PageTransition pathKey={p}><NotFound /></PageTransition></Layout>} />
-    </Routes>
+      </Routes>
+    </>
   )
 }
 

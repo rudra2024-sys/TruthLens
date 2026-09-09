@@ -5,8 +5,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.core.database import get_db
 from app.core.config import settings
-from app.models.models import Upload
+from app.models.models import Upload, User
 from app.schemas.schemas import UploadOut
+from app.api.routes.auth import get_current_user
 
 router = APIRouter(prefix="/upload", tags=["Upload"])
 
@@ -19,7 +20,11 @@ def get_media_type(content_type: str) -> str:
     return "unknown"
 
 @router.post("/", response_model=UploadOut, status_code=201)
-async def upload_file(file: UploadFile = File(...), db: AsyncSession = Depends(get_db)):
+async def upload_file(
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     if not file.content_type or file.content_type not in ALL_ALLOWED:
         raise HTTPException(415, f"Unsupported file type '{file.content_type}'. Accepted: JPG/PNG/WebP, MP4/MOV/WebM, WAV/MP3/FLAC.")
 
@@ -44,15 +49,23 @@ async def upload_file(file: UploadFile = File(...), db: AsyncSession = Depends(g
         media_type=get_media_type(file.content_type),
         storage_url=path,
         file_size_kb=round(size_kb, 1),
+        user_id=current_user.user_id,
     )
     db.add(record)
     await db.flush()
     return record
 
 @router.get("/{upload_id}", response_model=UploadOut)
-async def get_upload(upload_id: str, db: AsyncSession = Depends(get_db)):
+async def get_upload(
+    upload_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     r = await db.execute(select(Upload).where(Upload.upload_id == upload_id))
     u = r.scalar_one_or_none()
-    if not u:
+    # 404 (not 403) for both "doesn't exist" and "not yours" -- otherwise the
+    # distinct error code itself would leak that an upload_id belongs to
+    # someone else.
+    if not u or u.user_id != current_user.user_id:
         raise HTTPException(404, "Upload not found")
     return u

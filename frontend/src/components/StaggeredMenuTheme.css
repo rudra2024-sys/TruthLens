@@ -89,3 +89,68 @@
     font-size: 16px;
   }
 }
+
+/* TruthLens addition: signed-in greeting, shown beside the logo so a
+   logged-in visitor sees whose session it is at a glance. Purely additive
+   -- .sm-logo-group only wraps the existing button, it doesn't change the
+   button's own markup or the vendored StaggeredMenu.css rules. */
+.staggered-menu-wrapper .sm-logo-group {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  min-width: 0;
+}
+
+.staggered-menu-wrapper .sm-greeting {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.4em;
+  padding-left: 1rem;
+  border-left: 1px solid var(--line-strong, rgba(237, 234, 227, 0.2));
+  font-family: 'Playfair Display', Georgia, serif;
+  font-style: italic;
+  font-size: 24px;
+  color: var(--bone-dim, #9c9890);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 38vw;
+  animation: sm-greeting-in 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: 0.15s;
+}
+
+.staggered-menu-wrapper .sm-greeting strong {
+  font-style: normal;
+  font-weight: 500;
+  color: var(--sm-accent, #c89361);
+}
+
+@keyframes sm-greeting-in {
+  from {
+    opacity: 0;
+    transform: translateX(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .staggered-menu-wrapper .sm-greeting {
+    animation: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .staggered-menu-wrapper .sm-greeting {
+    font-size: 18px;
+    max-width: 30vw;
+  }
+}
+
+@media (max-width: 420px) {
+  .staggered-menu-wrapper .sm-greeting {
+    display: none;
+  }
+}

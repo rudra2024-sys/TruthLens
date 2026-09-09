@@ -46,6 +46,19 @@ const DotField = memo(({
       resizeTimer = setTimeout(doResize, 100);
     }
 
+    function updateOffset() {
+      // Re-reads the container's position relative to the document. For a
+      // fixed, full-viewport container (the common case here) rect.top/left
+      // stay 0 as the page scrolls, so this collapses to tracking
+      // window.scrollX/Y -- which is exactly what's needed to keep
+      // pageX/pageY-based mouse coordinates (below) aligned with the
+      // on-screen cursor after scrolling. Cheap enough to run on every
+      // scroll event: no rebuild, just two numbers.
+      const rect = canvas.parentElement.getBoundingClientRect();
+      sizeRef.current.offsetX = rect.left + window.scrollX;
+      sizeRef.current.offsetY = rect.top + window.scrollY;
+    }
+
     function doResize() {
       const rect = canvas.parentElement.getBoundingClientRect();
       const w = rect.width;
@@ -207,6 +220,7 @@ const DotField = memo(({
 
     doResize();
     window.addEventListener('resize', resize);
+    window.addEventListener('scroll', updateOffset, { passive: true });
     window.addEventListener('mousemove', onMouseMove, { passive: true });
     rafRef.current = requestAnimationFrame(tick);
 
@@ -220,6 +234,7 @@ const DotField = memo(({
       clearInterval(speedInterval);
       clearTimeout(resizeTimer);
       window.removeEventListener('resize', resize);
+      window.removeEventListener('scroll', updateOffset);
       window.removeEventListener('mousemove', onMouseMove);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps

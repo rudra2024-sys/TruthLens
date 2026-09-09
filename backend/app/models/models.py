@@ -50,6 +50,11 @@ class Upload(Base):
     storage_url: Mapped[str] = mapped_column(String, nullable=False)
     file_size_kb: Mapped[float] = mapped_column(Float, default=0)
     uploaded_at: Mapped[str] = mapped_column(String, default=lambda: datetime.utcnow().isoformat())
+    # Nullable so pre-existing rows created before ownership was enforced don't
+    # break; a NULL owner is never matched by an authenticated user's history
+    # or ownership check, so old unowned rows just become inaccessible rather
+    # than visible to everyone.
+    user_id: Mapped[str | None] = mapped_column(String, ForeignKey("users.user_id"), nullable=True)
 
     result: Mapped["DetectionResult"] = relationship(
         "DetectionResult", back_populates="upload", uselist=False,

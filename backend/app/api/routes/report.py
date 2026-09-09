@@ -3,17 +3,22 @@ from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.core.database import get_db
-from app.models.models import Upload, DetectionResult
+from app.models.models import Upload, DetectionResult, User
 from app.services.report.generator import generate_pdf_report
+from app.api.routes.auth import get_current_user
 
 router = APIRouter(prefix="/report", tags=["Report"])
 
 
 @router.get("/{upload_id}")
-async def download_report(upload_id: str, db: AsyncSession = Depends(get_db)):
+async def download_report(
+    upload_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     r = await db.execute(select(Upload).where(Upload.upload_id == upload_id))
     upload = r.scalar_one_or_none()
-    if not upload:
+    if not upload or upload.user_id != current_user.user_id:
         raise HTTPException(404, "Upload not found")
 
     r2 = await db.execute(select(DetectionResult).where(DetectionResult.upload_id == upload_id))

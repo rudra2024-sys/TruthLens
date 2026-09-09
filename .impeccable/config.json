@@ -1,0 +1,17 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "overused-font",
+        "value": "inter",
+        "files": [
+          "frontend/src/components/StaggeredMenuTheme.css"
+        ],
+        "createdAt": "2026-09-09T19:49:17.650Z",
+        "reason": "pre-existing .sm-toggle styling from before this session, not introduced by tonight's greeting/scroll-fix changes; out of scope to redesign unrequested"
+      }
+    ]
+  }
+}

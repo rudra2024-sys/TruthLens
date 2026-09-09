@@ -2,16 +2,24 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc
 from app.core.database import get_db
-from app.models.models import Upload, DetectionResult
+from app.models.models import Upload, DetectionResult, User
 from app.schemas.schemas import HistoryItemOut, StatsOut
+from app.api.routes.auth import get_current_user
 
 router = APIRouter(tags=["Dashboard"])
 
 
 @router.get("/history", response_model=list[HistoryItemOut])
-async def get_history(limit: int = 20, db: AsyncSession = Depends(get_db)):
+async def get_history(
+    limit: int = 20,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     r = await db.execute(
-        select(Upload).order_by(desc(Upload.uploaded_at)).limit(limit)
+        select(Upload)
+        .where(Upload.user_id == current_user.user_id)
+        .order_by(desc(Upload.uploaded_at))
+        .limit(limit)
     )
     uploads = r.scalars().all()
     items = []
@@ -28,11 +36,20 @@ async def get_history(limit: int = 20, db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/stats", response_model=StatsOut)
-async def get_stats(db: AsyncSession = Depends(get_db)):
-    r = await db.execute(select(DetectionResult))
+async def get_stats(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    r = await db.execute(
+        select(DetectionResult)
+        .join(Upload, Upload.upload_id == DetectionResult.upload_id)
+        .where(Upload.user_id == current_user.user_id)
+    )
     results = r.scalars().all()
 
-    r2 = await db.execute(select(Upload))
+    r2 = await db.execute(
+        select(Upload).where(Upload.user_id == current_user.user_id)
+    )
     uploads = r2.scalars().all()
 
     by_type = {"image": 0, "video": 0, "audio": 0}

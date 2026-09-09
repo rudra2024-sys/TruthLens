@@ -95,7 +95,10 @@ async def _run_success_case(db, name: str, path: str) -> bool:
 
     checks = [
         ("model_used mentions Video Model v1", "Video Model v1" in detection.model_used),
-        ("verdict is REAL or FAKE", detection.verdict in ("REAL", "FAKE")),
+        # UNCERTAIN is expected for borderline scores since the +-0.2 band
+        # around THRESHOLD was added to VideoModelV1Backend (matching
+        # image/audio's existing pattern) -- see services/video/backend.py.
+        ("verdict is REAL, FAKE, or UNCERTAIN", detection.verdict in ("REAL", "FAKE", "UNCERTAIN")),
         ("confidence_score in [0,1]", 0.0 <= detection.confidence_score <= 1.0),
         ("frames_analyzed == 16", analysis.frames_analyzed == 16),
         ("xception_score in [0,1]", 0.0 <= analysis.xception_score <= 1.0),

@@ -11,6 +11,21 @@ import './components/StaggeredMenuTheme.css'
  * StaggeredMenuTheme.css for the scoped dark-theme repaint. Animation
  * structure/timing/GSAP logic is untouched from the registry source.
  */
+const GREETINGS = ['Hello', 'Welcome back', 'Hola']
+
+/**
+ * Deterministic per-user pick, not per-render random -- avoids the
+ * greeting flipping on every route change/re-render, while still varying
+ * across different accounts.
+ */
+function pickGreeting(seed) {
+  let hash = 0
+  for (let i = 0; i < seed.length; i++) {
+    hash = (hash * 31 + seed.charCodeAt(i)) | 0
+  }
+  return GREETINGS[Math.abs(hash) % GREETINGS.length]
+}
+
 const Navigation = () => {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
@@ -19,6 +34,13 @@ const Navigation = () => {
     logout()
     navigate('/')
   }
+
+  const firstName = user?.name?.trim().split(/\s+/)[0]
+  const greeting = firstName ? (
+    <>
+      {pickGreeting(user.user_id || firstName)}, <strong>{firstName}</strong>
+    </>
+  ) : null
 
   const items = [
     { label: 'Home', link: '/', ariaLabel: 'Go to home' },
@@ -41,6 +63,7 @@ const Navigation = () => {
       colors={['#1F2022', '#0B0C0D']}
       logoUrl="/truthlens-logo.svg"
       logoText="TruthLens"
+      greeting={greeting}
       menuButtonColor="#EDEAE3"
       openMenuButtonColor="#EDEAE3"
       accentColor="#C89361"

@@ -4,22 +4,27 @@ from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.core.database import get_db
-from app.models.models import Upload, DetectionResult
+from app.models.models import Upload, DetectionResult, User
 from app.schemas.schemas import DetectionResultOut
 from app.services.detection_errors import UnprocessableMediaError
 from app.services.image.detector import run_image_detection
 from app.services.video.detector import run_video_detection
 from app.services.audio.detector import run_audio_detection
+from app.api.routes.auth import get_current_user
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/detect", tags=["Detection"])
 
 
 @router.post("/{upload_id}", response_model=DetectionResultOut, status_code=201)
-async def run_detection(upload_id: str, db: AsyncSession = Depends(get_db)):
+async def run_detection(
+    upload_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     r = await db.execute(select(Upload).where(Upload.upload_id == upload_id))
     upload = r.scalar_one_or_none()
-    if not upload:
+    if not upload or upload.user_id != current_user.user_id:
         raise HTTPException(404, "Upload not found. It may have expired or the ID is invalid.")
 
     try:
@@ -51,9 +56,18 @@ async def run_detection(upload_id: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/{upload_id}/result", response_model=DetectionResultOut)
-async def get_result(upload_id: str, db: AsyncSession = Depends(get_db)):
-    r = await db.execute(select(DetectionResult).where(DetectionResult.upload_id == upload_id))
-    result = r.scalar_one_or_none()
+async def get_result(
+    upload_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    r = await db.execute(select(Upload).where(Upload.upload_id == upload_id))
+    upload = r.scalar_one_or_none()
+    if not upload or upload.user_id != current_user.user_id:
+        raise HTTPException(404, "No detection result found for this upload.")
+
+    r2 = await db.execute(select(DetectionResult).where(DetectionResult.upload_id == upload_id))
+    result = r2.scalar_one_or_none()
     if not result:
         raise HTTPException(404, "No detection result found for this upload.")
     return result

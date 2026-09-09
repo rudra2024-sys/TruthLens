@@ -13,6 +13,7 @@ export const StaggeredMenu = ({
   className,
   logoUrl = '/src/assets/logos/reactbits-gh-white.svg',
   logoText,
+  greeting,
   menuButtonColor = '#fff',
   openMenuButtonColor = '#fff',
   accentColor = '#5227FF',
@@ -405,22 +406,29 @@ export const StaggeredMenu = ({
         })()}
       </div>
       <header className="staggered-menu-header" aria-label="Main navigation header">
-        <button
-          type="button"
-          className="sm-logo sm-logo-button"
-          onClick={handleLogoClick}
-          aria-label={logoText ? `${logoText} home` : 'Home'}
-        >
-          <img
-            src={logoUrl || '/src/assets/logos/reactbits-gh-white.svg'}
-            alt=""
-            className="sm-logo-img"
-            draggable={false}
-            width={28}
-            height={28}
-          />
-          {logoText && <span className="sm-logo-text">{logoText}</span>}
-        </button>
+        <div className="sm-logo-group">
+          <button
+            type="button"
+            className="sm-logo sm-logo-button"
+            onClick={handleLogoClick}
+            aria-label={logoText ? `${logoText} home` : 'Home'}
+          >
+            <img
+              src={logoUrl || '/src/assets/logos/reactbits-gh-white.svg'}
+              alt=""
+              className="sm-logo-img"
+              draggable={false}
+              width={28}
+              height={28}
+            />
+            {logoText && <span className="sm-logo-text">{logoText}</span>}
+          </button>
+          {greeting && (
+            <span className="sm-greeting" key={greeting}>
+              {greeting}
+            </span>
+          )}
+        </div>
         <button
           ref={toggleBtnRef}
           className="sm-toggle"

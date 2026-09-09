@@ -96,11 +96,17 @@ class VideoModelV1Backend:
     loaded once per process and cached by optimized.py, not reloaded per
     request.
 
-    verdict/confidence are passed through exactly as the verified
-    protocol computes them (probability >= 0.525 -> FAKE, else REAL) --
-    no added margin/UNCERTAIN banding, unlike HeuristicVideoBackend's
-    _band_verdict, since that would be new decision logic the evaluation
-    never covered.
+    confidence is passed through exactly as the verified protocol
+    computes it (the raw sigmoid probability). The verdict is banded
+    +-0.2 around the evaluated 0.525 threshold via _band_verdict, the
+    same margin already used by HeuristicVideoBackend and by the image/
+    audio detectors -- added post-Review-2-eve per explicit user request,
+    since real-world (non-Celeb-DF-v2) footage regularly lands close to
+    0.525 and a forced binary call there reads as false confidence. The
+    0.525 threshold value itself is unchanged; only the surrounding
+    decision band is new. This does NOT fix a confidently-wrong
+    prediction far from the threshold -- it only stops genuinely
+    borderline scores from being forced to a hard REAL/FAKE.
     """
 
     metadata = VideoModelMetadata(
@@ -123,8 +129,10 @@ class VideoModelV1Backend:
                 "corrupted, or in an unsupported format."
             ) from e
 
+        verdict = _band_verdict(result.probability, model_v1_common.THRESHOLD)
+
         return DetectionResult(
-            verdict=result.verdict,
+            verdict=verdict,
             confidence=result.probability,
             model_used=self.metadata.name,
             processing_time_ms=0.0,  # caller (video/detector.py) fills in the real elapsed time
