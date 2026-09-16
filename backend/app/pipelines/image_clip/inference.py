@@ -1,4 +1,4 @@
-"""TruthLens ConvNeXt-Tiny image inference."""
+"""TruthLens CLIP second-opinion inference."""
 
 from __future__ import annotations
 
@@ -6,24 +6,27 @@ from PIL import Image
 import torch
 
 from .model import load_model
-from .preprocessing import IMAGE_TRANSFORM
 
 
-class ImagePipeline:
+class ClipPipeline:
 
     def __init__(
         self,
         checkpoint_path: str | None = None,
     ):
-        self.model, self.device, self.checkpoint = load_model(
-            checkpoint_path
-        )
+        (
+            self.clip_backbone,
+            self.preprocess,
+            self.head,
+            self.device,
+            self.checkpoint,
+        ) = load_model(checkpoint_path)
 
     def predict(self, image_path: str) -> dict:
 
         with Image.open(image_path) as image:
             image = image.convert("RGB")
-            tensor = IMAGE_TRANSFORM(image)
+            tensor = self.preprocess(image)
 
         tensor = tensor.unsqueeze(0).to(
             self.device,
@@ -31,7 +34,10 @@ class ImagePipeline:
         )
 
         with torch.inference_mode():
-            logits = self.model(tensor)
+            embed = self.clip_backbone.encode_image(tensor)
+            embed = embed / embed.norm(dim=-1, keepdim=True)
+
+            logits = self.head(embed)
             probabilities = torch.softmax(
                 logits,
                 dim=1,
@@ -61,10 +67,8 @@ class ImagePipeline:
             "confidence": confidence,
             "fake_probability": fake_probability,
             "real_probability": real_probability,
-            "model_used": "ConvNeXt-Tiny",
-            "benchmark": "CIFAKE + AI-vs-Human-Generated + 140k-Real-Fake-Faces",
-            "checkpoint_epoch": self.checkpoint.get("epoch"),
-            "validation_accuracy": self.checkpoint.get(
+            "model_used": "CLIP ViT-B/16 (frozen) + MLP head",
+            "checkpoint_val_accuracy": self.checkpoint.get(
                 "best_val_accuracy"
             ),
         }

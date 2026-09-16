@@ -21,9 +21,10 @@ tl/
 │       ├── core/           config.py (Settings/.env), database.py, security.py (JWT/bcrypt)
 │       ├── models/         models.py — all SQLAlchemy models
 │       ├── schemas/        schemas.py — Pydantic response models
-│       ├── pipelines/image/   ConvNeXt-Tiny inference (the real trained image model)
+│       ├── pipelines/image/       ConvNeXt-Tiny inference (real trained image model)
+│       ├── pipelines/image_clip/  CLIP ViT-B/16 + trained head, second opinion (see §3)
 │       └── services/
-│           ├── image/detector.py    → calls pipelines/image (ConvNeXt-Tiny)
+│           ├── image/detector.py    → calls pipelines/image + pipelines/image_clip, averages both
 │           ├── video/detector.py    → calls video/backend.py (swappable; default: model_v1/optimized.py)
 │           ├── audio/detector.py    → calls services/models/model_client.py → AASIST (ONNX)
 │           ├── models/               pretrained model code (AASIST, MesoNet) + model_client.py
@@ -85,12 +86,83 @@ instead of a bare crash — keep this when touching `main.py`.
 ## 3. What's real vs. dead/placeholder — READ THIS BEFORE TOUCHING DETECTION CODE
 
 ### Genuinely trained (by this team)
-- **Image — ConvNeXt-Tiny**: `backend/app/pipelines/image/` (model.py/inference.py/preprocessing.py).
-  Checkpoint: **`models/checkpoints/image/convnext_tiny_best.pth`** (~319MB, gitignored — not
-  in version control, must be provisioned locally/on the deploy target). Checkpoint dict
-  contains `model_state_dict`, `epoch`, `best_val_accuracy` — a real training run, evaluated
-  on the CIFAKE benchmark. This is the active image detector, wired in
-  `backend/app/services/image/detector.py`.
+- **Image — ConvNeXt-Tiny + CLIP ViT-B/16 ensemble** (round 3 deployed 2026-09-16, see git
+  history / session notes for the full before/after trail): `backend/app/pipelines/image/`
+  (ConvNeXt-Tiny) and `backend/app/pipelines/image_clip/` (frozen CLIP backbone + trained MLP
+  head), combined in `backend/app/services/image/detector.py` by taking the **max** of each
+  model's FAKE probability (changed from averaging on 2026-09-16, see below for why).
+  `model_used` on the detection result reads `"ConvNeXt-Tiny + CLIP ViT-B/16 (ensemble)"` when
+  both ran.
+  - **ConvNeXt-Tiny** checkpoint: **`models/checkpoints/image/convnext_tiny_diversified_v2.pth`**
+    (~334MB, gitignored). Fine-tuned from the original CIFAKE-only checkpoint
+    (`convnext_tiny_best.pth`, kept on disk as a rollback) on CIFAKE +
+    `alessandrasala79/ai-vs-human-generated-dataset` + `xhlulu/140k-real-and-fake-faces` +
+    `ayushmandatta1/deepdetect-2025` (StyleGAN3/DALL-E 3/Midjourney/SD3), with random JPEG
+    re-compression / blur / resize-degradation augmentation during training. Per-source held-out
+    accuracy: 99.4-100%. The once-kept intermediate `convnext_tiny_diversified.pth` (the
+    pre-deepdetect-2025 round) was deleted 2026-09-16 during a disk-space cleanup — only the
+    original baseline and this v2 checkpoint remain as rollback points. **Not retrained since**
+    — still blind to the portrait-app genre below (see round 3).
+  - **CLIP second opinion** checkpoint: **`models/checkpoints/image_clip/clip_head_round3_portrait_app.pth`**
+    (~530KB, deployed 2026-09-16). Round 2 (`clip_head_best.pth`, same directory) is kept
+    alongside it as a rollback. Frozen CLIP ViT-B/16 backbone (downloads via `open_clip_torch` on
+    first use, cached in the `clip_backbone_cache` Docker volume), trained head only. Round 3
+    added a fifth, fake-only source (`portrait_app_fake_source_v1.zip`, see below) to the same
+    four datasets ConvNeXt uses and retrained just the head in
+    `TruthLens_CLIP_SecondOpinion.ipynb` (`C:\Users\admin\Downloads\`) — 97.43% best val accuracy,
+    held-out per-source: ai_vs_human 97.3%, cifake 95.3%, deepdetect2025 98.2%, faces 98.8%,
+    portrait_app 84% (n=25, small holdout since the source itself is only 257 images).
+  - `preprocessing.py` resizes directly to 224x224 — **do not reintroduce a 32x32-then-224x224
+    "crush" step**. That was tried on 2026-09-11 on the theory that a diversified checkpoint no
+    longer needed it, reverted based on a 2-image spot check that (misleadingly) favored keeping
+    it, then reverted again once a proper 4-source x 3000-image held-out evaluation showed it is
+    actively harmful at scale (dropped `faces` accuracy from 99.8% to 57%, barely better than
+    chance, because it destroys real detail in datasets that aren't natively low-resolution like
+    CIFAKE is). Any future preprocessing change needs a full per-source evaluation before being
+    kept, not a 1-2 image spot check either way.
+  - **Portrait-app blind spot: confirmed 2026-09-12, re-confirmed 2026-09-16, FIXED for CLIP,
+    ConvNeXt still blind.** Stylized AI "portrait app" images (viral apps that turn a selfie into
+    a fake vintage-family-photo or a painterly period-costume/armor portrait) used to be a total
+    blind spot for both sub-models (0/8 on the original 8-image hard-case test, both models
+    99.9%+ confident REAL, no disagreement). Root-caused to a real data gap: none of the four
+    original training sources contain this genre. Closed via a curated fifth, fake-only source —
+    `portrait_app_fake_source_v1.zip` (133.5MB, 257 images, currently at
+    `C:\Users\admin\Downloads\`, not yet copied into the repo or uploaded anywhere durable):
+    found by searching `poloclub/diffusiondb` (CC0, 14M real Stable Diffusion outputs from real
+    Discord user prompts, not GAN-generated) **by prompt text** in its `metadata.parquet` index
+    (dataset-title search on 2026-09-12 had found nothing) for vintage-photo / period-costume
+    prompts (~4,200 precise matches), downloading the 25 highest-yield zip parts (766 candidate
+    images), and manually visually reviewing all 766 down to 257 genuine matches (photorealistic
+    vintage b/w portraits, painterly period-costume/armor portraits, Renaissance/Baroque
+    oil-painting-style portraits, a "Victorian woman from behind" cluster — the last two clusters
+    are heavily near-duplicated per the zip's own README, not yet deduplicated). Used to retrain
+    only the CLIP head (see above) — raised CLIP's accuracy on this genre from 26.7% to 93.3% on
+    a local 15-image sample (84% on Colab's own held-out split). **ConvNeXt was not retrained and
+    is still blind** (~6.7% on the same local sample) — this is why the ensemble combination
+    changed from average to max: averaging CLIP's fixed signal with ConvNeXt's still-blind one
+    dragged the ensemble's accuracy on this genre back down to 66.7% (44% on Colab's held-out
+    split), largely cancelling out the fix. Max lets either model's catch through undiluted, at a
+    measured cost of ~0.9 points overall accuracy across the four original sources (more false
+    FAKE flags on ordinary real photos) per the notebook's own strategy-comparison table — sanity
+    checked 2026-09-16 against a 9-image real-photo set through the live API post-deployment,
+    9/9 still correctly REAL, no regression observed at that sample size. **Revisit this
+    average-vs-max trade-off if ConvNeXt is ever retrained on the same portrait-app source** —
+    that would likely let averaging work again without the accuracy-cliff cost max currently
+    carries. Test images and a standalone comparison script live at
+    `backend/test_data/blind_spot_images/{portrait_app,chatgpt_everyday}/` and
+    `backend/test_blind_spot_checkpoints.py` (not wired into CI, run manually).
+  - **Separate, newly-confirmed blind spot, 2026-09-16, NOT addressed by round 3**: photorealistic
+    "everyday" AI-generated images — ordinary, mundane real-photo recreations (a jewelry
+    close-up, a temple selfie, a food photo, a mirror selfie) produced by asking ChatGPT/GPT-4o-
+    class image generation to recreate real reference photos, with no stylization cues at all
+    (unlike the portrait-app genre's vintage/costume look). Confirmed via 8 such images (in
+    `backend/test_data/blind_spot_images/chatgpt_everyday/`): 0/8 correct across every
+    model/checkpoint combination tested (ConvNeXt alone, CLIP round 2, CLIP round 3, and both
+    ensemble strategies) — all 8 classified REAL at 99.99%+ confidence regardless. Root cause is
+    presumably the same category of problem as the portrait-app gap (no training source contains
+    this generator's output), but likely a harder data-sourcing problem than DiffusionDB was:
+    GPT-4o-class outputs aren't collected in bulk public prompt datasets the way Stable Diffusion
+    outputs are via DiffusionDB. No training data search has been attempted for this yet.
 - **Audio — Wav2Vec2 + LCNN**: exists **separately**, not yet integrated into this codebase.
   Will be integrated later — do not wire it in without explicit instruction.
 - **Video — Video Model v1 (EfficientNet-B0, epoch 11)**: `backend/app/services/video/model_v1/`
@@ -192,6 +264,8 @@ Only touch it for a concrete, reproducible bug.
 | `FAKE_THRESHOLD` | `core/config.py` | `0.5` | verdict cutoff, used by video/audio `_verdict()` |
 | `IMAGE_MODEL_CHECKPOINT` | `pipelines/image/model.py` | `backend/checkpoints/image/convnext_tiny_best.pth` | override to point at `models/checkpoints/image/convnext_tiny_best.pth` when running outside Docker |
 | `IMAGE_MODEL_DEVICE` | `pipelines/image/model.py` | `auto` (cuda if available, else cpu) | `cpu`/`cuda` |
+| `CLIP_MODEL_CHECKPOINT` | `pipelines/image_clip/model.py` | `models/checkpoints/image_clip/clip_head_best.pth` | docker-compose points this at `clip_head_round3_portrait_app.pth` as of 2026-09-16; override with an absolute path when running outside Docker |
+| `CLIP_MODEL_DEVICE` | `pipelines/image_clip/model.py` | `auto` (cuda if available, else cpu) | `cpu`/`cuda` |
 | `VIDEO_MODEL_BACKEND` | `services/video/backend.py` | `model_v1` | `heuristic` to fall back to the old byte-entropy heuristic |
 | `VIDEO_MODEL_V1_CHECKPOINT` | `services/video/model_v1/common.py` | `backend/checkpoints/video/epoch_11_model_only.pt` | absolute path recommended when running outside Docker |
 | `VIDEO_MODEL_V1_DEVICE` | `services/video/model_v1/common.py` | `auto` (cuda if available, else cpu) | `cpu`/`cuda` |
@@ -207,13 +281,17 @@ reads from a `.env` if present (`core/config.py`'s `Config.env_file = ".env"`).
 ## 6. How to run
 
 **Backend** (no Docker required — a `.venv` with all deps already exists at repo root):
-```bash
+```powershell
 cd backend
+$env:IMAGE_MODEL_CHECKPOINT="../models/checkpoints/image/convnext_tiny_diversified_v2.pth"
+$env:CLIP_MODEL_CHECKPOINT="../models/checkpoints/image_clip/clip_head_round3_portrait_app.pth"
+$env:IMAGE_MODEL_DEVICE="cpu"; $env:CLIP_MODEL_DEVICE="cpu"
 ../.venv/Scripts/python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
-Set `IMAGE_MODEL_CHECKPOINT` to `../models/checkpoints/image/convnext_tiny_best.pth` (absolute
-path recommended) if running outside Docker, since the default path assumes the Docker bind
-mount at `backend/checkpoints/image/`.
+Both `IMAGE_MODEL_CHECKPOINT` and `CLIP_MODEL_CHECKPOINT` must be set when running outside
+Docker (absolute paths recommended) — the defaults baked into `pipelines/image/model.py` and
+`pipelines/image_clip/model.py` assume the Docker bind mounts at `backend/checkpoints/`, which
+don't exist locally.
 
 **Frontend**:
 ```bash

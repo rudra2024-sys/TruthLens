@@ -28,6 +28,8 @@ function EvidenceRows({ result }) {
     const a = result.image_analysis
     if (a.fake_probability != null) rows.push(['FAKE probability', `${(a.fake_probability * 100).toFixed(1)}%`])
     if (a.real_probability != null) rows.push(['REAL probability', `${(a.real_probability * 100).toFixed(1)}%`])
+    if (a.convnext_fake_probability != null) rows.push(['ConvNeXt-Tiny sub-score (FAKE)', `${(a.convnext_fake_probability * 100).toFixed(1)}%`])
+    if (a.clip_fake_probability != null) rows.push(['CLIP second-opinion sub-score (FAKE)', `${(a.clip_fake_probability * 100).toFixed(1)}%`])
     if (a.efficientnet_score != null) rows.push(['Noise residual score (legacy)', `${(a.efficientnet_score * 100).toFixed(1)}%`])
     if (a.fft_score != null) rows.push(['FFT frequency score (legacy)', `${(a.fft_score * 100).toFixed(1)}%`])
   }

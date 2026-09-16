@@ -18,6 +18,8 @@ class ImageAnalysisOut(BaseModel):
     fft_score: Optional[float] = None
     fake_probability: Optional[float] = None
     real_probability: Optional[float] = None
+    convnext_fake_probability: Optional[float] = None
+    clip_fake_probability: Optional[float] = None
 
     class Config:
         from_attributes = True

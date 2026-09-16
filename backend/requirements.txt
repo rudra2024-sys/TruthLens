@@ -20,3 +20,4 @@ email-validator
 av
 onnxruntime
 opencv-python-headless<5
+open_clip_torch

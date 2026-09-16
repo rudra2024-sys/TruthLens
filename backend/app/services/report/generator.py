@@ -151,6 +151,27 @@ def generate_pdf_report(upload: Upload, result: DetectionResult) -> str:
                     )
                 )
 
+        # Ensemble sub-model scores (ConvNeXt-Tiny + CLIP second opinion),
+        # shown separately from the combined FAKE/REAL Probability above so
+        # the two models' individual disagreement stays visible.
+        if image_analysis.convnext_fake_probability is not None:
+            elements.append(
+                Paragraph(
+                    f"ConvNeXt-Tiny Sub-score (FAKE probability): "
+                    f"{image_analysis.convnext_fake_probability * 100:.1f}%",
+                    styles["Normal"],
+                )
+            )
+
+        if image_analysis.clip_fake_probability is not None:
+            elements.append(
+                Paragraph(
+                    f"CLIP Second-Opinion Sub-score (FAKE probability): "
+                    f"{image_analysis.clip_fake_probability * 100:.1f}%",
+                    styles["Normal"],
+                )
+            )
+
         # Legacy heuristic pipeline
         if image_analysis.efficientnet_score is not None:
             elements.append(
@@ -274,9 +295,11 @@ def generate_pdf_report(upload: Upload, result: DetectionResult) -> str:
         Paragraph(
             "This report contains the output produced by the "
             "TruthLens detection pipeline. For image analysis, "
-            "ConvNeXt-Tiny probabilities are reported when "
-            "available. Legacy heuristic scores are included "
-            "only when present.",
+            "the FAKE/REAL Probability is the higher of the FAKE "
+            "probabilities reported by ConvNeXt-Tiny and a CLIP-based "
+            "second opinion, reported individually as sub-scores when "
+            "available. Legacy heuristic scores are included only when "
+            "present.",
             ParagraphStyle(
                 "footer",
                 parent=styles["Normal"],

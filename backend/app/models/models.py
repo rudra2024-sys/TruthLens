@@ -104,13 +104,30 @@ class ImageAnalysis(Base):
         nullable=True
     )
 
-    # New trained ConvNeXt-Tiny outputs.
+    # Ensemble output (ConvNeXt-Tiny + CLIP second opinion, combined via max
+    # -- see services/image/detector.py for why) -- this is the value
+    # _verdict() and confidence_score are actually derived from.
     fake_probability: Mapped[float | None] = mapped_column(
         Float,
         nullable=True
     )
 
     real_probability: Mapped[float | None] = mapped_column(
+        Float,
+        nullable=True
+    )
+
+    # Individual sub-model scores, kept for transparency in the report --
+    # do not repeat the wav2vec_score/lcnn_score mislabeling mistake (see
+    # schemas.py AudioAnalysisOut) where a field's name stopped matching what
+    # it actually holds. NULL for detections run before the CLIP ensemble
+    # was added.
+    convnext_fake_probability: Mapped[float | None] = mapped_column(
+        Float,
+        nullable=True
+    )
+
+    clip_fake_probability: Mapped[float | None] = mapped_column(
         Float,
         nullable=True
     )
