@@ -120,6 +120,29 @@ export const getUpload = async (uploadId) => {
 export const reportUrl = (uploadId) =>
   `/api/v1/report/${uploadId}`
 
+export const downloadReport = async (uploadId) => {
+  try {
+    const response = await api.get(`/report/${uploadId}`, {
+      responseType: 'blob',
+    })
+
+    const disposition = response.headers['content-disposition'] || ''
+    const match = disposition.match(/filename="?([^";]+)"?/)
+    const filename = match ? match[1] : `truthlens-report-${uploadId}.pdf`
+
+    const blobUrl = window.URL.createObjectURL(response.data)
+    const link = document.createElement('a')
+    link.href = blobUrl
+    link.download = filename
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    window.URL.revokeObjectURL(blobUrl)
+  } catch (err) {
+    throw new Error(friendlyError(err))
+  }
+}
+
 export const signup = async (name, email, password) => {
   try {
     return await api.post('/auth/signup', {

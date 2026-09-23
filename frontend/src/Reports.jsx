@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Eye, Download, FileX, AlertCircle } from 'lucide-react'
-import { getHistory, reportUrl } from './api/client'
+import { getHistory, downloadReport } from './api/client'
 import VerdictBadge from './components/VerdictBadge'
 import LoadingState from './components/LoadingState'
 import CaseTag from './components/CaseTag'
@@ -163,16 +163,15 @@ export default function Reports() {
                       >
                         <Eye size={15} strokeWidth={1.75} />
                       </button>
-                      <a
-                        href={reportUrl(report.upload_id)}
-                        download
-                        onClick={(e) => e.stopPropagation()}
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); downloadReport(report.upload_id) }}
                         className="w-11 h-11 rounded-full bg-panel-raised border border-line flex items-center justify-center text-bone-dim hover:bg-bone hover:text-ground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brass transition-colors duration-300"
                         title="Download PDF"
                         aria-label="Download PDF report"
                       >
                         <Download size={15} strokeWidth={1.75} />
-                      </a>
+                      </button>
                     </div>
                   </div>
                 )

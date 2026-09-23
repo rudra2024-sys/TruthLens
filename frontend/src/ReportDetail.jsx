@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { AlertCircle, Download, ArrowLeft, ChevronDown } from 'lucide-react'
-import { getDetectionResult, getUpload, reportUrl } from './api/client'
+import { getDetectionResult, getUpload, downloadReport } from './api/client'
 import VerdictSeal from './components/VerdictSeal'
 import VerdictBadge from './components/VerdictBadge'
 import ConfidenceGauge from './components/ConfidenceGauge'
@@ -199,14 +199,13 @@ export default function ReportDetail() {
             )}
 
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.5, duration: 0.5 }}>
-              <a
-                href={reportUrl(result.upload_id)}
-                target="_blank"
-                rel="noopener noreferrer"
+              <button
+                type="button"
+                onClick={() => downloadReport(result.upload_id)}
                 className="inline-flex items-center gap-2 px-6 py-3 bg-brass text-ground rounded-[3px] text-[12px] font-medium tracking-[0.08em] uppercase btn-lift"
               >
                 <Download size={15} strokeWidth={1.75} /> Download PDF Report
-              </a>
+              </button>
             </motion.div>
           </div>
         </Reveal>

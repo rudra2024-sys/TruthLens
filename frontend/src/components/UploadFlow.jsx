@@ -2,7 +2,7 @@ import React, { useState, useRef, useCallback, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { Image as ImageIcon, Video as VideoIcon, AudioLines, Upload as UploadIcon, Download, Search, ChevronDown, RotateCcw } from 'lucide-react'
-import { uploadMedia, runDetection } from '../api/client'
+import { uploadMedia, runDetection, downloadReport } from '../api/client'
 import { ACCEPTED_INPUT_ACCEPT, ACCEPTED_FORMAT_CHIPS } from '../lib/acceptedFormats'
 import VerdictBadge from './VerdictBadge'
 import VerdictSeal from './VerdictSeal'
@@ -336,9 +336,9 @@ export default function UploadFlow({ compact = false, showRecent = false, headin
             <button onClick={() => navigate(`/report/${result.uploadId}`)} className="flex items-center gap-2 bg-brass text-ground px-6 py-3 rounded-[4px] text-[12px] font-medium tracking-[0.08em] uppercase btn-lift">
               View Full Report <ArrowRight />
             </button>
-            <a href={`/api/v1/report/${result.uploadId}`} download className="flex items-center gap-2 text-[12px] font-medium tracking-[0.06em] text-bone-dim hover:text-bone transition-colors duration-300 link-underline px-4 py-3">
+            <button type="button" onClick={() => downloadReport(result.uploadId)} className="flex items-center gap-2 text-[12px] font-medium tracking-[0.06em] text-bone-dim hover:text-bone transition-colors duration-300 link-underline px-4 py-3">
               <Download size={15} strokeWidth={1.75} /> Download PDF
-            </a>
+            </button>
           </motion.div>
         </motion.div>
       )}
