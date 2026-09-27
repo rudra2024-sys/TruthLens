@@ -1,7 +1,8 @@
 # TruthLens
 
-**AI-generated media detection.** Upload an image, video, or audio clip and get a verdict
-(REAL / FAKE / UNCERTAIN), a confidence score, and a downloadable PDF forensic report.
+**AI-generated media detection that shows its work.** Upload an image, video or audio clip and get a verdict
+(REAL / FAKE / UNCERTAIN), a confidence score, an explanation of *why*, what the file's own metadata says, and a downloadable PDF
+forensic report — with the limits of every claim stated plainly.
 
 Final-year project — Dept. of Information Technology, VIT Mumbai, 2025–26.
 
@@ -9,82 +10,97 @@ Final-year project — Dept. of Information Technology, VIT Mumbai, 2025–26.
 
 ## What it does
 
-TruthLens runs three independent detectors, one per media type:
+| Media | Detector | What it detects |
+|---|---|---|
+| **Image** | **ConvNeXt-Tiny** (fine-tuned by the team) **+ CLIP ViT-B/16** second opinion (trained head), combined by taking the higher fake score | Real photo vs AI-generated image |
+| **Video** | **Video Model v1** — EfficientNet-B0 on 16 face-cropped frames (fine-tuned by the team, verified against the original Celeb-DF-v2 evaluator) | Face-swap deepfakes |
+| **Audio** | **AASIST** (pretrained, Jung et al. ICASSP 2022) | Real vs synthetic/cloned speech |
 
-| Media | Model | Trained on | What it actually detects |
-|---|---|---|---|
-| **Image** | ConvNeXt-Tiny (fine-tuned by this team) | CIFAKE | Real photograph vs. AI-generated image |
-| **Video** | EfficientNet-B0 (fine-tuned by this team) | Celeb-DF-v2 | Face-swap deepfake detection |
-| **Audio** | AASIST (pretrained, Jung et al. ICASSP 2022) | ASVspoof2019-LA | Real speech vs. synthetic/cloned (TTS) speech |
+Scores near the decision threshold come back as **UNCERTAIN** rather than a forced call.
 
-Only the video model is a "deepfake detector" in the strict sense (manipulation of a real
-person's face). Image and audio are real-vs-synthetic classifiers — the umbrella term
-"AI-generated media detection" is used deliberately for the product as a whole.
+### Beyond the verdict
+* **Explanations** — Grad-CAM heatmaps for images; per-frame scores and the exact face crops the model saw for video. Grad-CAM explains the
+  model's score; it is not proof of manipulation, and the UI says so.
+* **Provenance** — C2PA Content Credentials (signature, unchanged-since-signing, trust), embedded metadata and generation parameters. When the
+  models say REAL but the file declares itself AI-generated, all three surfaces (UI, API, PDF) flag the conflict. Missing metadata is never
+  treated as evidence.
+* **Background video scans** with a real progress bar, queue position and cancel — a long video no longer freezes the server.
+* **Feedback** — "was this correct?", with an opt-in (off by default) to let a file be kept for evaluation, changeable and withdrawable.
+* **PDF report** — verdict, per-model scores, explanation, provenance, caveats.
+* **Private by design** — every scan, report, job and feedback item is visible only to its owner (other users get 404, never 403).
 
-Every result includes a confidence score, and scores close to the decision threshold are
-returned as **UNCERTAIN** rather than a forced call — the app never presents a low-confidence
-guess as a certain verdict.
+## How well does it work? (measured, not marketed)
+
+Evaluated with the harness in [`backend/eval/`](backend/eval/) on 6,500+ images and 300+ videos; details and caveats in
+[`backend/eval/results/EVALUATION_SUMMARY.md`](backend/eval/results/EVALUATION_SUMMARY.md).
+
+| | Result |
+|---|---|
+| Image, on kinds of data it was trained on | **98.4 %** accuracy, AUC 1.00 |
+| Image, on generators it **never saw** (GenImage, OpenFake, ChatGPT) | **53 %** accuracy, AUC 0.67 — only ~27 % of AI images caught |
+| Video, unseen face swaps (RTFS) | 79 % accuracy, AUC 0.89 |
+| Video Model v1 on Celeb-DF-v2 (original protocol, 6,529 videos) | ROC-AUC 0.695 |
+| Provenance | catches 9 of the 1,026 AI images the models miss (all 8 ChatGPT ones) — but **only if the file is untouched**: every re-save we tried removed the declaration |
+| Robustness (screenshot, WhatsApp-style, WebP) | AUC stays ≥ 0.99 on familiar sources; but faint noise or heavy JPEG makes 30–40 % of *real* photos look fake ([details](backend/eval/results/robustness/report.md)) |
+
+**Bottom line:** near-perfect on data like its training data, weak on generators it hasn't seen. Read
+[`docs/ETHICS_AND_LIMITATIONS.md`](docs/ETHICS_AND_LIMITATIONS.md) before relying on a verdict — "REAL" means "no evidence found", and "FAKE" is a lead, not proof.
 
 ## Stack
-
-- **Backend:** FastAPI (Python), SQLAlchemy (async) over SQLite, JWT auth
-- **Frontend:** React + Vite, Tailwind
-- **ML:** PyTorch (image, video), ONNX Runtime (audio)
-- **Reports:** server-generated PDF (ReportLab)
-- **Deploy:** Docker Compose (backend + frontend)
+* **Backend:** FastAPI (Python 3.11), async SQLAlchemy over SQLite, JWT auth · **Frontend:** React + Vite, Tailwind
+* **ML:** PyTorch (image, video), ONNX Runtime (audio), OpenCLIP · **Reports:** ReportLab · **Provenance:** c2pa-python
+* **Deploy:** Docker Compose (dev and production), nginx · **CI:** GitHub Actions (pytest + frontend build)
 
 ## Running it locally
 
-### 1. Docker Desktop
-Install and open it — make sure the engine is running.
+### 1. Get the model files
+The checkpoints (~335 MB) are not in git. You need three files; their SHA-256 sums are in [`models/CHECKSUMS.sha256`](models/CHECKSUMS.sha256):
 
-### 2. Clone
+| File | Place it at |
+|---|---|
+| `convnext_tiny_diversified_v2.pth` (~319 MB) | `models/checkpoints/image/` |
+| `clip_head_round3_portrait_app.pth` (~0.5 MB) | `models/checkpoints/image_clip/` |
+| `epoch_11_model_only.pt` (~16 MB) | `backend/checkpoints/video/` |
+
+If they are hosted somewhere you control: `python backend/scripts/fetch_checkpoints.py --base-url <folder-url>` downloads and verifies them
+(`--check` only verifies). The audio weights are small and already in git. Without the image/video files those scans fail with an error; audio still works.
+
+### 2a. With Docker
 ```bash
-git clone https://github.com/rudra2024-sys/TruthLens.git
-cd TruthLens
+docker-compose up --build          # app: http://localhost:3000   API docs: http://localhost:8000/docs
 ```
+### 2b. Without Docker
+Backend and frontend commands (with the environment variables for the checkpoints) are in [`CLAUDE.md`](CLAUDE.md) §6.
 
-### 3. Get the model checkpoints
-Two files aren't in this repo (too large for git) — ask a teammate who has them for:
+### 3. Sign up
+Each machine has its own local database — create a fresh account. Your history, uploads and reports are private to it.
 
-| File | Size | Place it at |
-|---|---|---|
-| `convnext_tiny_best.pth` | ~319 MB | `models/checkpoints/image/convnext_tiny_best.pth` |
-| `epoch_11_model_only.pt` | ~16 MB | `backend/checkpoints/video/epoch_11_model_only.pt` |
-
-(Create the `checkpoints/...` folders if they don't already exist — they're gitignored, so a
-fresh clone won't have them.) Audio needs no extra setup — its weights are small enough to
-already be committed.
-
-Without the checkpoints, the app still runs, but image/video verification will fail with an
-error; audio verification works out of the box.
-
-### 4. Start it
+## Tests and CI
 ```bash
-docker-compose up --build
+cd backend && ../.venv/Scripts/python.exe -m pytest              # everything (~1.5 min)
+cd backend && python -m pytest -m "not models"                    # what CI runs: no model files needed
 ```
-First run takes a few minutes. Once it's up:
-- App: **http://localhost:3000**
-- API docs: **http://localhost:8000/docs**
+200+ tests cover auth, access control, upload validation, detection routes, jobs, feedback, PDF content, explain/provenance, verdict thresholds
+and the evaluation metrics. `backend/tests/mutation_check.py` deliberately breaks guarded behaviours to prove the tests notice.
 
-### 5. Sign up
-Each machine has its own local database — sign up for a fresh account. Your history, uploads,
-and reports are private to your account and won't be visible to (or from) anyone else's.
+## Deploying
+See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md): production compose file, safe start-up checks (the server refuses to start without a real
+signing key), checkpoint fetching, TLS, backups and a pre-launch checklist.
 
-To stop: `Ctrl+C`, then `docker-compose down`. To restart later: `docker-compose up` (no
-`--build` needed unless the code changed).
+## Documentation
+| | |
+|---|---|
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | System, detector, scan-flow and data-model diagrams |
+| [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) | What could go wrong, what protects against it, and the known gaps |
+| [`docs/ETHICS_AND_LIMITATIONS.md`](docs/ETHICS_AND_LIMITATIONS.md) | Accuracy limits, blind spots, bias, privacy, responsible use |
+| [`docs/DATASETS.md`](docs/DATASETS.md) | Every dataset, its licence and whether the models saw it |
+| [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) | Putting it on a server |
+| [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md) | An 8-minute presentation storyboard |
+| [`CLAUDE.md`](CLAUDE.md) | Maintained source of truth for internals: what is real ML vs heuristic vs dead code, environment variables, rules for changes |
 
-## Honest limitations
-
-- The image and audio models were trained on narrow benchmark datasets (CIFAKE, ASVspoof2019-LA)
-  and don't fully generalize to arbitrary real-world uploads yet — a real photo or a real audio
-  recording can sometimes be misclassified. This is disclosed here deliberately rather than
-  overclaiming accuracy.
-- The video model's validated accuracy is ROC-AUC 0.695 on Celeb-DF-v2 (verified line-by-line
-  against the original evaluator, 6,529 videos, 0 inference errors) — an honest number, not
-  inflated.
-
-## Project docs
-
-`CLAUDE.md` in the repo root is the maintained source of truth for architecture, what's real
-vs. dead code, environment variables, and detailed dev setup — read it before making changes.
+## Honest limitations (short version)
+* Detection generalises poorly to generators it was not trained on (numbers above); consumer face-swap apps such as Akool and Magic Hour are still missed.
+* Provenance only helps on untouched files; screenshots, messaging apps and re-saves remove it.
+* Audio uses a pretrained model and has not been evaluated by this project; a teammate's separate audio model is not integrated.
+* Uploads are stored until you delete them; there is no retention policy or "delete my data" button yet (see the threat model).
+* Not a forensic tool for legal decisions: it produces leads and evidence to review, not proof.

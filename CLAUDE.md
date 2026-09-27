@@ -68,12 +68,17 @@ FastAPI app in `backend/app/main.py`, all routers mounted under `/api/v1`:
 | `/api/v1/upload/{upload_id}` | GET | Fetch upload metadata |
 | `/api/v1/detect/{upload_id}` | POST | Run detection for an upload, dispatches by media_type |
 | `/api/v1/detect/{upload_id}/result` | GET | Fetch a previously-computed detection result |
+| `/api/v1/detect/{upload_id}/jobs` | POST | Start detection as a background job (202); idempotent (see section 13) |
+| `/api/v1/jobs/{job_id}` | GET / DELETE | Poll a job's state + real progress / cancel it |
 | `/api/v1/history` | GET | Recent uploads + their verdicts (dashboard/history page) |
 | `/api/v1/stats` | GET | Aggregate counts by verdict/media type (dashboard) |
 | `/api/v1/report/{upload_id}` | GET | Generates (or regenerates) and streams the PDF report |
 | `/api/v1/auth/signup` | POST | Create account, returns JWT |
 | `/api/v1/auth/login` | POST | Returns JWT |
 | `/api/v1/auth/me` | GET | Current user (bearer token required) |
+| `/api/v1/detect/{upload_id}/explain` | GET | Grad-CAM / per-frame explanation, computed on demand (section 11) |
+| `/api/v1/detect/{upload_id}/provenance` | GET | C2PA/EXIF/ELA provenance signals (section 12) |
+| `/api/v1/detect/{upload_id}/feedback` | GET / PUT / DELETE | Read / upsert / withdraw "was this correct?" feedback (section 15) |
 
 CORS is currently wide open (`allow_origins=["*"]`) in `main.py` — acceptable for FYP/dev,
 worth tightening before any real production exposure, but out of scope unless asked.
@@ -181,6 +186,19 @@ instead of a bare crash — keep this when touching `main.py`.
   Videos shorter than 16 frames raise `common.ShortVideoError` (mapped to a 422 via
   `UnprocessableMediaError`), matching the original evaluator's behavior rather than inventing
   a fallback — the original's real Celeb-DF-v2 run reported 0 such errors across 6,529 videos.
+  - **Known video blind spot (confirmed 2026-09-24)**: consumer AI face-swap/video apps (Akool,
+    Magic Hour) — 2 of the 10 local ground-truth videos, both vertical 9:16 phone-format clips
+    (464x832, 480x848) — score real-leaning on *every* sampled frame (best-frame logits ~+0.01
+    to +0.06). Frame pooling is not the cause: max and top-4-mean pooling were tried and did no
+    better (pairwise AUC 0.60 vs 0.64 for mean) and flagged all 5 real videos FAKE. Same class
+    of problem as the image portrait-app / ChatGPT gaps: no training source (FF++, Celeb-DF,
+    DFDC, WildDeepfake) contains these generators or the vertical format.
+  - **CNN+BiGRU temporal head experiments (Colab, not deployed)**: a full-dataset head hit val
+    AUC 0.89 in-distribution but 0.44 on the ground-truth videos; v3 (adds WildDeepfake,
+    checkpoint selected by real-world AUC) reached 0.72 vs 0.64 for the deployed CNN, but on
+    10 videos with poor calibration — not enough evidence to swap. Production is unchanged.
+    Real fix would be sourcing fake clips from consumer face-swap apps as a new training
+    source; needs explicit approval per §8 rule 1.
 
 ### Pretrained (not trained by this team, but real trained DNNs)
 - **Audio — AASIST** (Jung et al., ICASSP 2022), pretrained on ASVspoof2019-LA, ONNX weights
@@ -271,10 +289,15 @@ Only touch it for a concrete, reproducible bug.
 | `VIDEO_MODEL_V1_DEVICE` | `services/video/model_v1/common.py` | `auto` (cuda if available, else cpu) | `cpu`/`cuda` |
 | `MODEL_SERVICE_URL` | `services/models/model_client.py` | `http://models:8001` | only relevant if the `models/` microservice is actually deployed as a docker-compose service, which it currently is not |
 | `AUTH_SECRET_KEY` | `core/security.py` | insecure dev default | **must** override for any real deployment |
+| `DETECTION_JOB_CONCURRENCY` | `services/jobs.py` | `1` | max background detection jobs running at once (inference is CPU-bound; the rest wait in `queued`) |
 | `DEBUG` | `core/config.py` | `true` | |
+| `CORS_ORIGINS` | `core/config.py` / `core/startup.py` | `*` | comma-separated allowed origins; `*` only logs a warning when `DEBUG=false` (section 16) |
+| `BIND_ADDRESS` | `docker-compose.prod.yml` | `0.0.0.0` | set to `127.0.0.1` when a TLS-terminating proxy runs on the same host (section 16) |
+| `PUBLIC_PORT` | `docker-compose.prod.yml` | `80` | prod compose only |
 
 No `.env` file currently exists in the repo (confirmed absent as of Phase 1 audit). `Settings`
-reads from a `.env` if present (`core/config.py`'s `Config.env_file = ".env"`).
+reads from a `.env` if present (`core/config.py`'s `Config.env_file = ".env"`). An `.env.example`
+now documents every variable above for production use (section 16).
 
 ---
 
@@ -311,10 +334,23 @@ connect otherwise (seen in this environment).
 
 ## 7. Testing expectations
 
-- There is no frontend test script (`package.json` has no `test` entry) and no formal backend
-  test suite runner configured — existing `test_*.py` files (`backend/test_image_detection.py`,
-  root `smoke_test.py`/`test_detection.py`, `frontend/smoke_test.py`,
-  `models/test_image_pipeline.py`) are standalone scripts, not wired into CI.
+- **Backend: a pytest suite exists** (`backend/tests/`, config in `backend/pytest.ini`, deps in
+  `backend/requirements-dev.txt`). From `backend/`: `../.venv/Scripts/python.exe -m pytest` runs everything (~45 s);
+  `-m "not models"` is what CI runs (~20 s, no checkpoints needed); `-m models` runs only the tests that use the
+  real checkpoints (they skip themselves when a checkpoint is missing). It uses a temp DB/upload/report dir set
+  before `app` is imported (the app builds settings + engine at import time), stubs the detectors for the API
+  tests, and covers: auth, upload validation, 404-not-403 ownership on every route, error mapping, PDF content +
+  graceful degradation, verdict banding (incl. the protected 0.5 / 0.525 thresholds), explain/provenance logic,
+  and the eval metrics (vs scikit-learn). Regression tests exist for two real bugs: repeated `POST /detect/{id}`
+  used to store a 2nd result and make `/result`, `/report`, `/explain`, `/provenance` 500 forever (now idempotent),
+  and stale heuristic labels on Video-v1 PDFs. A mutation check (breaking each guarded behaviour on purpose)
+  confirmed the tests fail when they should.
+- **CI:** `.github/workflows/ci.yml` — backend job (Python 3.11, `pytest -m "not models"`) and frontend job
+  (`npm ci && npm run build`; there is still no frontend test script). It has not been run on GitHub yet (verified
+  locally from a clean virtualenv only, which also caught that `requirements.txt` lacked the `greenlet` SQLAlchemy's async mode needs — now `sqlalchemy[asyncio]`). New backend features should come with tests in `backend/tests/`.
+- Older standalone scripts (`backend/test_image_detection.py`, `test_*_smoke.py`, `test_video_model_v1_*.py`,
+  `test_blind_spot_checkpoints.py`, root `smoke_test.py`/`test_detection.py`, `frontend/smoke_test.py`,
+  `models/test_image_pipeline.py`) are unchanged, are not collected by pytest (`testpaths = tests`), and are not in CI.
 - Before claiming any fix works: actually exercise it. For frontend bugs, that means driving
   the real UI flow (upload → detect → render, or navigate → click) in a browser and checking
   the console for errors — a passing `curl /health` does not prove a UI path works. For backend
@@ -356,3 +392,230 @@ detectors that each return a different bespoke shape, and normalizing all of tha
 simultaneously is a multi-file refactor of currently-correct, working code — real regression
 risk, not an additive change. Treat that as a separate, explicitly-approved follow-up task, not
 something to pick up incidentally while touching nearby code.
+
+---
+
+## 10. Evaluation harness (`backend/eval/`) and measured results
+
+Read-only measurement of the **deployed** detectors — changes no model, weight or threshold. Three steps
+(`build_manifest.py` → `run_predictions.py` → `make_report.py`, see `backend/eval/README.md`); raw scores and
+manifests live in git-ignored `backend/eval/data/`, reports in `backend/eval/results/{image,video,video_lab_lowres}/`,
+and the written analysis in `backend/eval/results/EVALUATION_SUMMARY.md`. Metrics are verified against
+scikit-learn by `python -m eval.test_metrics`. Evaluation datasets were downloaded to `D:\eval_data\` (not in the
+repo; OpenFake's license is "unknown" — keep local).
+
+Headline (2026-09-26): **near-perfect on training-like data, near chance on unseen generators.**
+- Image (deployed max ensemble): seen sources (CIFAKE/DeepDetect/140k Faces/AI-vs-Human) 98.4% acc, AUC 1.00;
+  unseen (GenImage SD/Midjourney/BigGAN, OpenFake, ChatGPT) 53.2% acc, AUC 0.665, only 27.3% of fakes caught.
+  Ensemble ablation confirms the max-vs-average trade-off in section 3.
+- Video (Video Model v1): unseen RTFS face swaps (inswapper/uniface) + own 10 videos: 79.4% acc, AUC 0.892
+  [0.852, 0.926]. Own 10 videos alone are too few (AUC 0.64); Akool/Magic Hour fakes still missed.
+- **The `pranabkc/deepfake-with-cropped-faces-from-video` clips are 112x112 px** — the deployed video model's scores
+  collapse to ~0.45-0.50 on them (acc 50.8%), so they are not a valid test set for it, and note they are
+  low-resolution when used as training data for the Colab CNN+BiGRU head experiments.
+- Caveats to repeat in any report: "seen" sources are train/test folders of datasets used in training (the exact
+  hold-out split was not recorded); GenImage real=JPEG vs fake=PNG format bias; RTFS real/fake encode differences.
+
+---
+
+## 11. Explainability (`backend/app/services/explain/`) — added 2026-09-26
+
+Read-only, additive: recomputes attributions with the **deployed** models; changes no model, weight, threshold,
+stored result or DB schema. Verified to reproduce production numbers exactly (`backend/test_explain_consistency.py`).
+
+- **Image:** Grad-CAM on ConvNeXt-Tiny's last stage w.r.t. the FAKE logit. **The CLIP sub-model has no heatmap** — when
+  CLIP drives the max-ensemble verdict, the API/PDF say so explicitly rather than implying ConvNeXt's map explains it.
+  Heatmap strength is scaled by ConvNeXt's own FAKE probability (`core.evidence_strength`) so images judged REAL show
+  no fabricated "evidence" (per-image normalised Grad-CAM would otherwise light up noise).
+- **Video (Video Model v1 only):** per-frame FAKE logits/probabilities (the verdict is sigmoid of their mean), the exact
+  224px crops the model saw, and Grad-CAM on the 3 most suspicious frames. Unavailable under
+  `VIDEO_MODEL_BACKEND=heuristic`. Audio: explicitly "not available" (teammate's area).
+- **Surfaces:** `GET /api/v1/detect/{upload_id}/explain` (auth + owner check, computed on demand in a threadpool,
+  returns data-URI images), a best-effort "Explainability" section in the PDF (failure only skips that section), and
+  `frontend/src/components/ExplanationPanel.jsx` (lazy — fetched only when opened) used in `ReportDetail.jsx` and
+  `UploadFlow.jsx`. All three verified end to end in a real browser.
+- **Faithfulness check** (`python -m eval.explain_faithfulness`, results in `backend/eval/results/explain_faithfulness.md`):
+  masking Grad-CAM's top 20% region lowers ConvNeXt's FAKE probability by 0.232 on average vs 0.044 for a random region
+  of equal size; Grad-CAM wins on 85% of 195 images. Small drops on saturated (99%+) seen sources are expected.
+- **Also fixed (report labels):** with Video Model v1 the PDF's video breakdown used stale heuristic labels
+  ("Structure Entropy Score", "Byte Windows Sampled"); it now says "Video Model v1 FAKE Probability" / "Frames Analyzed".
+  The audio labelling issue in section 3 is untouched (teammate owns audio).
+- **Useful finding:** the video crops expose face-detector failures — for the Akool clip (`fake video 3`) the Haar
+  detector locks onto a wall poster/background instead of a face, which plausibly explains that miss.
+- Grad-CAM shows what the model's score depends on, not proof of manipulation (the API `note` and PDF say so).
+
+---
+
+## 12. Provenance checks (`backend/app/services/provenance/`) — added 2026-09-26
+
+Supplementary, read-only evidence shown next to the verdict. **It never changes a stored result, threshold or model
+score** (fusing provenance into the verdict would be a behaviour change needing explicit approval, section 8 rule 1).
+
+- **C2PA Content Credentials** via the official `c2pa-python` SDK (in `requirements.txt`), validated against the bundled
+  C2PA trust list (`provenance/trust/c2pa_trust_list.pem`, retrieved 2026-09-26 from c2pa-org/conformance-public —
+  refresh periodically; README alongside). Reported facts: signature valid, **file unchanged since signing**
+  (a flipped byte gives `assertion.dataHash.mismatch`), signer on trust list, AI declared (IPTC digital-source-type),
+  issuer/generator/actions. OpenAI's signer is currently **not** on the trust list, so its credentials show
+  "signature valid, unchanged, signer identity self-asserted" — worded that way on purpose (untrusted != forged).
+- **Embedded metadata** (Pillow): camera EXIF (weak signal only), editing software, GPS *presence* (coordinates are never
+  returned), AI generation parameters (PNG `prompt`/`seed`/`parameters`/ComfyUI workflow, A1111-style
+  Steps/Sampler/CFG layout), XMP AI source type. **ELA** for JPEG only, as a labelled visual aid, never a score.
+  Video: C2PA + container facts + encoder tag.
+- **Wording rules (rule 5):** absent metadata "says nothing either way"; present metadata "can be edited or forged".
+  A stripped/re-saved file simply shows nothing — provenance can be removed, so it can add evidence but never clear a file.
+- **Conflict note:** when the models say REAL/UNCERTAIN but the file declares itself AI-generated, API + UI + PDF
+  say so explicitly (the ChatGPT "everyday" blind-spot images: models 0/8, all 8 carry OpenAI C2PA credentials).
+- **Surfaces:** `GET /api/v1/detect/{upload_id}/provenance` (auth + owner check), "Provenance & Metadata" PDF section
+  (best-effort), `frontend/src/components/ProvenancePanel.jsx` (auto-fetched, silent on failure) in `ReportDetail.jsx`
+  and `UploadFlow.jsx`. Verified end to end in a real browser. Tests: `backend/test_provenance.py`
+  (17 checks incl. tamper/strip/EXIF/garbage), study: `python -m eval.provenance_study` →
+  `backend/eval/results/provenance_study.md`.
+- **Measured limits (6,532 eval images):** AI declarations exist on only 0.4% of AI images overall — benchmark datasets
+  are re-encoded and stripped — but on 9 of the 1,026 AI images the models miss, and all 8 ChatGPT + 1 portrait-app
+  blind-spot images. So it helps on fresh, unmodified downloads from generators that embed credentials, not on
+  scraped/re-uploaded data. ELA separates real/fake with AUC 0.53-0.75 on most sources but **0.995 on DeepDetect**:
+  a JPEG-compression-history shortcut in that dataset, which the ML models may be exploiting too (consistent with,
+  not proof of, their collapse on unseen generators).
+
+
+---
+
+## 13. Background detection jobs (`backend/app/services/jobs.py`) — added 2026-09-27
+
+Video scans used to run inside the HTTP request: no progress feedback, and the blocking model call froze the server's
+event loop for every other user. The frontend now runs **video** scans as jobs (image/audio stay synchronous — they are fast).
+
+- **API:** `POST /api/v1/detect/{upload_id}/jobs` -> 202 job; `GET /api/v1/jobs/{job_id}` -> `{state: queued|running|done|
+  failed|cancelled, progress 0..1, stage, queue_position, result_id, error}`; `DELETE` cancels. When `done`, fetch the
+  result from the existing `GET /detect/{upload_id}/result`. Owner-only (404 for anyone else), idempotent (an already-
+  scanned upload returns a finished job; an upload with a scan in flight returns that job - no duplicate results).
+- **Real progress:** `model_v1.optimized.predict(..., progress=cb)` and `common.decode_selected_frames(..., on_frame=cb)`
+  gained optional callbacks (decode 0-70 %, face-crop 70-90 %, scoring 90 %). They are observation-only - verified
+  bit-identical predictions with/without a callback (`tests/test_models.py`) and `test_video_model_v1_regression.py` still
+  passes. Cancel works by raising inside the callback. The UI shows the server's numbers, not a timer.
+- `run_video_detection` now runs the scoring in a worker thread (`run_in_threadpool`), so it no longer blocks the event loop
+  - this also applies to the old synchronous `POST /detect/{id}` path. (Image/audio detectors are still blocking calls.)
+- **Limits:** job state is in memory of ONE server process (results are durable in the DB; an unknown job id after a restart
+  404s and the UI falls back to `/result`). Running several uvicorn workers would need a shared job store. Concurrency is 1
+  by default (`DETECTION_JOB_CONCURRENCY`). If the user leaves the page the scan keeps running and lands in the history.
+- **Tests:** `backend/tests/test_jobs.py` (13 tests incl. non-blocking, cancel-stops-early, queue position, ownership);
+  the mutation tool `backend/tests/mutation_check.py` (17 guarded behaviours as of section 17 below) catches all of them.
+- **Known pre-existing quirk (not changed):** for video, `confidence_score` is the raw FAKE probability (Video Model v1's
+  protocol), so the UI's confidence gauge shows e.g. "31 %" next to an AUTHENTIC verdict; image and audio use max(p, 1-p).
+
+---
+
+## 14. Robustness suite (`backend/eval/{perturbations,build_robustness_subset,run_robustness,make_robustness_report}.py`)
+— added 2026-09-27
+
+Read-only, additive: re-scores the **deployed** detectors on degraded copies of existing eval images. No model, weight
+or threshold changed. 300 label-balanced images (180 seen-source, 120 unseen) x 21 settings (clean, JPEG q90-10,
+downscale-and-restore, blur, noise, centre crop, screenshot/WhatsApp-style/WebP) — 6,300 scored rows, 0 errors. Full
+tables: `backend/eval/results/robustness/report.md`; summarized in `EVALUATION_SUMMARY.md` and
+`docs/ETHICS_AND_LIMITATIONS.md` §3.
+
+- **Everyday sharing is fine on seen sources**: screenshot / WhatsApp-style (resize+JPEG q65) / WebP all keep AUC ≥ 0.99.
+- **CLIP causes false alarms under noise/compression**: real-photo specificity of the deployed `max` rule falls to
+  71.1% (noise std 5), 62.2% (JPEG q10), and even 87.8% at a mild JPEG q90 — ConvNeXt alone stays 96.7-98.9% in all 21
+  settings; CLIP alone drops to 63% at q10. This is why `max` inherits CLIP's false-alarm behaviour under degradation.
+- **ConvNeXt causes missed fakes under heavy blur**: at blur sigma 3, ConvNeXt alone only catches 50% of AI images (the
+  `max` rule recovers to 83% because CLIP still catches its share).
+- **Unseen sources stay near chance** (AUC ~0.61) regardless of degradation; degradations mostly shift scores toward
+  FAKE without adding real discrimination.
+- **No model changed here** — the obvious next step (noise/compression augmentation on retrain) needs explicit
+  approval per section 8 rule 1.
+- Tests: `backend/tests/test_perturbations.py` (14), `test_robustness_report.py` (3).
+
+---
+
+## 15. Feedback loop (`backend/app/api/routes/feedback.py`, `app/services/feedback_export.py`) — added 2026-09-27
+
+"Was this result correct?" on the result screen and the report-detail page. Purely additive: writes to a new
+`feedback` table, never touches a stored detection result, model, or threshold.
+
+- **API:** `GET /api/v1/detect/{upload_id}/feedback` -> the current user's feedback or `null`. `PUT` (same path) upserts
+  it — one feedback row per (upload, user), resubmitting replaces it. Body: `agrees: bool`, optional `true_label`
+  (`real`/`ai`/`unsure`, ignored when `agrees` is true), optional `comment` (<=500 chars), `allow_reuse: bool` (opt-in,
+  default false). Disagreeing without a label is stored as `"unsure"`. `DELETE` withdraws it (idempotent, 204 either
+  way) — this also revokes any reuse consent. Owner-only everywhere (404 for anyone else, matching the rest of the API).
+  Needs an existing detection result on the upload, else 404.
+- **Consent is per-item and explicit**: only feedback with `allow_reuse=true` ever has its file copied or its comment
+  exported; everything else contributes anonymous counts only (`app/services/feedback_export.py::derived_label` /
+  `export_feedback`). A label is derived only when unambiguous (agree+FAKE->ai, agree+REAL->real, disagree+explicit
+  label->that label; agreed UNCERTAIN and "unsure" answers carry no label).
+- **Export tool:** `backend/scripts/export_feedback.py --out <dir>` writes `feedback_summary.csv` (all feedback, no
+  file paths, comments blanked unless consented), `manifest_feedback.csv` (same columns as
+  `eval/build_manifest.py`, consented+labeled rows only, so `python -m eval.run_predictions` can score the deployed
+  models on cases users flagged), and copies the consented files into `<dir>/files/`. **For evaluation only** — using
+  this to retrain needs explicit approval (section 8 rule 1).
+- **Frontend:** `frontend/src/components/FeedbackPanel.jsx` (states: unanswered Yes/No -> "wrong" detail form with
+  label buttons + optional comment + consent checkbox (default off) -> saved state with a re-togglable consent
+  checkbox, "Change" (reopens the edit form) and "Withdraw feedback"), wired into `UploadFlow.jsx` and
+  `ReportDetail.jsx`. Verified end to end in a real browser against the live API: save (disagree/real/comment/
+  consent), consent toggle re-PUTs `allow_reuse` immediately, "Change" reopens the edit form, "Cancel" reverts without
+  saving, "Withdraw feedback" deletes server-side (`GET .../feedback` returns `null` after), no console errors.
+- **Tests:** `backend/tests/test_feedback.py` (17: agree/disagree/unsure, idempotent resubmit, ownership, consent-gated
+  export, label derivation, confusion counts).
+
+---
+
+## 16. Production deployment (`backend/Dockerfile.prod`, `docker-compose.prod.yml`, `frontend/nginx.prod.conf`,
+`backend/app/core/startup.py`, `backend/scripts/fetch_checkpoints.py`) — added 2026-09-27
+
+Full walkthrough in `docs/DEPLOYMENT.md`. **Statically validated only** — `docker compose config` resolves the prod
+compose file against `.env.example`, and every helper (startup guard, checkpoint fetch/verify, file contents) has a
+passing test (`backend/tests/test_deploy_helpers.py`, 22 tests), but the images have never actually been built or run
+(no Docker engine in this environment) — do the smoke test in `docs/DEPLOYMENT.md` §5 before trusting it in the field.
+
+- **Start-up safety** (`core/startup.py`): with `DEBUG` off, the server refuses to start if `AUTH_SECRET_KEY` is the
+  public dev default or under 32 chars; an open `CORS_ORIGINS=*` only logs a warning. Wired into `main.py`'s lifespan.
+  `CORS_ORIGINS` (comma-separated origins, default `*`) is a new env var (`core/config.py`), parsed by
+  `startup.parse_origins`.
+  `BIND_ADDRESS` (default `0.0.0.0`) and `PUBLIC_PORT` (default `80`) are new env vars for the prod compose file only,
+  letting the site listen on `127.0.0.1` behind a TLS-terminating reverse proxy.
+- **Checkpoint fetch/verify** (`backend/scripts/fetch_checkpoints.py`): downloads the three large checkpoints from a
+  URL you host and verifies each against `models/CHECKSUMS.sha256`; a mismatched download is discarded, never left
+  in place. `--check` verifies without downloading.
+- **Hardened images:** `backend/Dockerfile.prod` runs one non-root uvicorn process without `--reload` (the existing
+  dev `backend/Dockerfile` still uses `--reload`, unchanged, for local Docker dev). `frontend/Dockerfile` gained a
+  `NGINX_CONF` build arg so the same image can build with either `nginx.conf` (dev) or `nginx.prod.conf` (adds
+  security headers and a 10 req/min/IP rate limit on `/api/v1/auth/`).
+- **Compose:** `docker-compose.prod.yml` sets `DEBUG=false`, mounts checkpoints read-only, keeps state on a
+  `truthlens_data:/data` volume, reads secrets from `.env` (see `.env.example`).
+- **Feedback export op:** `docker compose ... exec backend python scripts/export_feedback.py --out /data/feedback_export`
+  (see section 15).
+- Backend process memory: see the sizing note in `docs/DEPLOYMENT.md` §1 (~265 MB resident after all three image/video
+  models are loaded and warmed up; up to ~2.3 GB committed virtual memory from PyTorch's CPU allocator).
+
+---
+
+## 17. Mutation testing coverage (`backend/tests/mutation_check.py`) — updated 2026-09-27
+
+17 guarded behaviours as of this update (run manually: `python tests/mutation_check.py` from `backend/`; each
+mutation is applied, the named test is confirmed to fail, then the file is restored byte-for-byte in a `finally`
+block). Covers: idempotent detect, provenance ownership, video-v1 report labels, the 0.5/0.525 thresholds,
+explainability failure isolation, C2PA tamper detection, the provenance conflict note, Grad-CAM evidence fading, AUC
+tie-handling, the non-blocking video job path, job cancellation, monotonic job progress, duplicate-job prevention,
+job ownership, **feedback export consent** (added 2026-09-27, section 15), **the production start-up secret guard**
+(added 2026-09-27, section 16), and **the Colab v5 cache-fix leakage counter** (added 2026-09-27, see below) — 17/17
+caught as of the last run.
+
+### Colab video-head cache fix (`backend/eval/video_head_experiments/v5_cache_fix.py`)
+
+Not part of the live product — a fix for the teammate-adjacent CNN+BiGRU video-head training notebook
+(`TruthLens_Video_CNN_RNN_Training_v5.ipynb`, in `C:\Users\admin\Downloads\`), needed because Colab T4 quota exhausts
+mid-run and the original `build_feature_cache` returned *every* cached entry regardless of what was actually
+requested for the current split — a leakage risk if a later run's train/val split ever differed from an earlier one
+sharing the same Drive cache folder.
+
+- **Fix:** `build_feature_cache(items, cache_path, log_every=100)` now returns only the requested items, in requested
+  order, reusing whatever is already cached across every `train_features_v5*.pt` / `val_features_v5*.pt` file in the
+  shared Drive folder (keyed by `path#view`), and only extracts what's missing.
+- **Leakage/consistency check:** `cache_report(train_items, val_items)` prints how many cached entries match this
+  run's train list, val list, or neither, and explicitly counts any train-cache items that are this run's validation
+  items (`"the old code would have trained on these"`).
+- **Split fingerprint:** `split_fingerprint()` prints `zlib.crc32` hashes of the sorted train/val identity lists, so
+  the same split can be confirmed across different Google accounts before trusting shared cache reuse. Confirmed
+  identical (5,666 train / 999 val identities, fingerprint `1546901497 1575160195`) across the accounts used this
+  session — no leakage, cache reuse is safe.
+- Tests: `backend/tests/test_v5_cache_fix.py` (11, incl. the leakage-detection counter above).
