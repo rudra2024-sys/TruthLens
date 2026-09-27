@@ -45,7 +45,7 @@ class VideoModelMetadata:
 class VideoBackend(Protocol):
     metadata: VideoModelMetadata
 
-    def score(self, path: str) -> DetectionResult: ...
+    def score(self, path: str, progress=None) -> DetectionResult: ...
 
 
 def _band_verdict(score: float, threshold: float, margin: float = 0.2) -> str:
@@ -69,7 +69,8 @@ class HeuristicVideoBackend:
         validated=False,
     )
 
-    def score(self, path: str) -> DetectionResult:
+    def score(self, path: str, progress=None) -> DetectionResult:
+        # progress is accepted for interface parity; the byte-entropy heuristic is one quick pass, nothing to report.
         structure, consistency, windows = analyze_video(path)
         confidence = clamp01(0.75 * structure + 0.25 * consistency)
         verdict = _band_verdict(confidence, settings.FAKE_THRESHOLD)
@@ -116,9 +117,9 @@ class VideoModelV1Backend:
         validated=True,
     )
 
-    def score(self, path: str) -> DetectionResult:
+    def score(self, path: str, progress=None) -> DetectionResult:
         try:
-            result = model_v1_optimized.predict(path)
+            result = model_v1_optimized.predict(path, progress=progress)
         except ValueError as e:
             # Covers model_v1_common.ShortVideoError (a ValueError
             # subclass) and the plain ValueErrors decode_selected_frames

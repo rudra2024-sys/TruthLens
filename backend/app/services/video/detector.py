@@ -1,11 +1,13 @@
 import uuid, time, os
+from fastapi.concurrency import run_in_threadpool
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.models import Upload, VideoAnalysis
 from app.models.models import DetectionResult as DetectionResultRow
 from app.services.video.backend import get_video_backend
 
 
-async def run_video_detection(upload: Upload, db: AsyncSession) -> str:
+async def run_video_detection(upload: Upload, db: AsyncSession, progress=None) -> str:
+    """progress (optional): progress(fraction, stage), called from a worker thread while the model runs."""
     start = time.perf_counter()
 
     path = upload.storage_url
@@ -18,7 +20,9 @@ async def run_video_detection(upload: Upload, db: AsyncSession) -> str:
     # without touching this function's DB-writing code. See
     # services/video/backend.py.
     backend = get_video_backend()
-    result = backend.score(path)
+    # The scoring is blocking, CPU-heavy work (decoding + a forward pass). Run it in a worker thread so it does
+    # not freeze the event loop - previously every other request stalled for the whole duration of a video scan.
+    result = await run_in_threadpool(backend.score, path, progress)
 
     elapsed_ms = (time.perf_counter() - start) * 1000
 

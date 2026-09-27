@@ -9,12 +9,16 @@ services:
     volumes:
       - ./backend:/app
       - ./models/checkpoints/image:/app/checkpoints/image:ro
+      - ./models/checkpoints/image_clip:/app/checkpoints/image_clip:ro
       - uploads_data:/app/uploads
       - reports_data:/app/reports
+      - clip_backbone_cache:/root/.cache
     environment:
       DEBUG: "true"
-      IMAGE_MODEL_CHECKPOINT: "/app/checkpoints/image/convnext_tiny_best.pth"
+      IMAGE_MODEL_CHECKPOINT: "/app/checkpoints/image/convnext_tiny_diversified_v2.pth"
       IMAGE_MODEL_DEVICE: "cpu"
+      CLIP_MODEL_CHECKPOINT: "/app/checkpoints/image_clip/clip_head_round3_portrait_app.pth"
+      CLIP_MODEL_DEVICE: "cpu"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 15s
@@ -44,3 +48,4 @@ networks:
 volumes:
   uploads_data:
   reports_data:
+  clip_backbone_cache:

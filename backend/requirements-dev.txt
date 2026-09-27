@@ -1,0 +1,7 @@
+-r requirements.txt
+pytest
+httpx              # required by FastAPI's TestClient
+pypdf
+matplotlib        # eval/make_report.py + tests/test_robustness_report.py
+pyyaml            # tests/test_deploy_helpers.py (validates the compose files)
+scikit-learn   # optional: cross-checks eval/metrics.py in tests/test_eval_metrics.py

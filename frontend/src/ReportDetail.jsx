@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { AlertCircle, Download, ArrowLeft, ChevronDown } from 'lucide-react'
-import { getDetectionResult, getUpload, reportUrl } from './api/client'
+import { getDetectionResult, getUpload, downloadReport } from './api/client'
 import VerdictSeal from './components/VerdictSeal'
 import VerdictBadge from './components/VerdictBadge'
 import ConfidenceGauge from './components/ConfidenceGauge'
@@ -11,6 +11,9 @@ import CaseTag from './components/CaseTag'
 import Reveal from './components/Reveal'
 import LoadingState from './components/LoadingState'
 import Disclosure from './components/Disclosure'
+import ExplanationPanel from './components/ExplanationPanel'
+import ProvenancePanel from './components/ProvenancePanel'
+import FeedbackPanel from './components/FeedbackPanel'
 import { getVerdictInfo } from './lib/verdict'
 import { stationTag } from './lib/stations'
 
@@ -28,6 +31,8 @@ function EvidenceRows({ result }) {
     const a = result.image_analysis
     if (a.fake_probability != null) rows.push(['FAKE probability', `${(a.fake_probability * 100).toFixed(1)}%`])
     if (a.real_probability != null) rows.push(['REAL probability', `${(a.real_probability * 100).toFixed(1)}%`])
+    if (a.convnext_fake_probability != null) rows.push(['ConvNeXt-Tiny sub-score (FAKE)', `${(a.convnext_fake_probability * 100).toFixed(1)}%`])
+    if (a.clip_fake_probability != null) rows.push(['CLIP second-opinion sub-score (FAKE)', `${(a.clip_fake_probability * 100).toFixed(1)}%`])
     if (a.efficientnet_score != null) rows.push(['Noise residual score (legacy)', `${(a.efficientnet_score * 100).toFixed(1)}%`])
     if (a.fft_score != null) rows.push(['FFT frequency score (legacy)', `${(a.fft_score * 100).toFixed(1)}%`])
   }
@@ -196,15 +201,30 @@ export default function ReportDetail() {
               </motion.div>
             )}
 
+            {/* Provenance — supplementary evidence (C2PA credentials / embedded metadata); cheap, so automatic. */}
+            <ProvenancePanel
+              uploadId={result.upload_id}
+              mediaType={upload?.media_type || (result.image_analysis ? 'image' : result.video_analysis ? 'video' : null)}
+              className="mb-10"
+            />
+
+            {/* Explainability — fetched only when opened (backend recomputes it, ~1-3 s). */}
+            <ExplanationPanel
+              uploadId={result.upload_id}
+              mediaType={upload?.media_type || (result.image_analysis ? 'image' : result.video_analysis ? 'video' : null)}
+              className="mb-10"
+            />
+
+            <FeedbackPanel uploadId={result.upload_id} className="mb-10" />
+
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.5, duration: 0.5 }}>
-              <a
-                href={reportUrl(result.upload_id)}
-                target="_blank"
-                rel="noopener noreferrer"
+              <button
+                type="button"
+                onClick={() => downloadReport(result.upload_id)}
                 className="inline-flex items-center gap-2 px-6 py-3 bg-brass text-ground rounded-[3px] text-[12px] font-medium tracking-[0.08em] uppercase btn-lift"
               >
                 <Download size={15} strokeWidth={1.75} /> Download PDF Report
-              </a>
+              </button>
             </motion.div>
           </div>
         </Reveal>

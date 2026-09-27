@@ -17,6 +17,10 @@ class Settings(BaseSettings):
 
     FAKE_THRESHOLD: float = 0.5
 
+    # Comma-separated browser origins allowed to call the API. "*" (the default) keeps the historical open behaviour
+    # for development; set it to your site's origin in production (see docs/DEPLOYMENT.md).
+    CORS_ORIGINS: str = "*"
+
     class Config:
         env_file = ".env"
 
