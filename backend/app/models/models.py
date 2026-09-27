@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from sqlalchemy import String, Float, Integer, ForeignKey, Boolean
+from sqlalchemy import String, Float, Integer, ForeignKey, Boolean, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.database import Base
 
@@ -154,3 +154,25 @@ class AudioAnalysis(Base):
     wav2vec_score:   Mapped[float] = mapped_column(Float)
     lcnn_score:      Mapped[float] = mapped_column(Float)
     result: Mapped["DetectionResult"] = relationship("DetectionResult", back_populates="audio_analysis")
+
+
+class Feedback(Base):
+    """A user's judgement of one detection result ("was this correct?").
+
+    One row per (upload, user): resubmitting updates it. `allow_reuse` is an explicit opt-in to keep the uploaded file for
+    evaluating / improving the models; the export tooling ignores the file of any feedback where it is False.
+    """
+    __tablename__ = "feedback"
+    __table_args__ = (UniqueConstraint("upload_id", "user_id", name="uq_feedback_upload_user"),)
+
+    feedback_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    upload_id:   Mapped[str] = mapped_column(String, ForeignKey("uploads.upload_id"), index=True)
+    user_id:     Mapped[str] = mapped_column(String, ForeignKey("users.user_id"), index=True)
+    result_id:   Mapped[str | None] = mapped_column(String, ForeignKey("detection_results.result_id"), nullable=True)
+    verdict:     Mapped[str] = mapped_column(String)            # the verdict the user was shown
+    agrees:      Mapped[bool] = mapped_column(Boolean)          # True = "the result was correct"
+    true_label:  Mapped[str | None] = mapped_column(String, nullable=True)   # real | ai | unsure (only when disagreeing)
+    comment:     Mapped[str | None] = mapped_column(String, nullable=True)   # <= 500 chars
+    allow_reuse: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    created_at:  Mapped[str] = mapped_column(String, default=lambda: datetime.utcnow().isoformat())
+    updated_at:  Mapped[str] = mapped_column(String, default=lambda: datetime.utcnow().isoformat())
