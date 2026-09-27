@@ -6,3 +6,8 @@ uploads
 reports
 .env
 .git
+eval/data
+tests
+.pytest_cache
+_smoke_test_fixtures
+feedback_export

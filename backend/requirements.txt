@@ -1,7 +1,7 @@
 fastapi
 uvicorn[standard]
 python-multipart
-sqlalchemy
+sqlalchemy[asyncio]
 aiosqlite
 python-dotenv
 pydantic
@@ -21,3 +21,4 @@ av
 onnxruntime
 opencv-python-headless<5
 open_clip_torch
+c2pa-python
