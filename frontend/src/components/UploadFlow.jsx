@@ -2,7 +2,7 @@ import React, { useState, useRef, useCallback, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { Image as ImageIcon, Video as VideoIcon, AudioLines, Upload as UploadIcon, Download, Search, ChevronDown, RotateCcw } from 'lucide-react'
-import { uploadMedia, runDetection, downloadReport } from '../api/client'
+import { uploadMedia, runDetection, downloadReport, startDetectionJob, getJob, cancelJob, getDetectionResult } from '../api/client'
 import { ACCEPTED_INPUT_ACCEPT, ACCEPTED_FORMAT_CHIPS } from '../lib/acceptedFormats'
 import VerdictBadge from './VerdictBadge'
 import VerdictSeal from './VerdictSeal'
@@ -16,6 +16,9 @@ import FilmstripScan from './scan/FilmstripScan'
 import Reveal from './Reveal'
 import Disclosure from './Disclosure'
 import SpecimenDossier from './SpecimenDossier'
+import ExplanationPanel from './ExplanationPanel'
+import ProvenancePanel from './ProvenancePanel'
+import FeedbackPanel from './FeedbackPanel'
 import { getVerdictInfo } from '../lib/verdict'
 
 /**
@@ -54,6 +57,40 @@ const fmtSize = (bytes) => {
   return `${(bytes / 1024 / 1024).toFixed(2)} MB`
 }
 
+class JobCancelledError extends Error {}
+
+const POLL_INTERVAL_MS = 600
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+/** Real progress of a background scan (video). The numbers come from the server's job, not from a timer. */
+function JobProgress({ job, onCancel }) {
+  const pct = Math.round((job.progress || 0) * 100)
+  const queued = job.state === 'queued'
+  return (
+    <div className="w-full max-w-[260px]" role="status" aria-live="polite">
+      <div className="flex items-center gap-3">
+        <div
+          className="flex-1 h-[3px] bg-line-strong rounded-full overflow-hidden"
+          role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} aria-label="Analysis progress"
+        >
+          <div className="h-full bg-brass rounded-full transition-[width] duration-300" style={{ width: `${pct}%` }} />
+        </div>
+        <span className="tl-figure text-[11px] text-bone-dim w-9 text-right">{pct}%</span>
+      </div>
+      <p className="tl-figure text-[11px] text-bone-faint mt-2">
+        {queued ? `Waiting in queue${job.queue_position ? ` — position ${job.queue_position}` : ''}` : job.stage}
+      </p>
+      <button
+        type="button"
+        onClick={onCancel}
+        className="mt-3 text-[11px] font-medium tracking-[0.06em] text-bone-dim hover:text-bone transition-colors duration-300 link-underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brass"
+      >
+        Cancel analysis
+      </button>
+    </div>
+  )
+}
+
 const SCAN_LABEL = { image: 'Pixel Scan', video: 'Captured Frames', audio: 'Waveform', other: 'Specimen' }
 
 const SpecimenPreview = ({ file, active }) => {
@@ -83,6 +120,8 @@ export default function UploadFlow({ compact = false, showRecent = false, headin
   const [error, setError] = useState(null)
   const [recentFiles, setRecentFiles] = useState([])
   const [inspectOpen, setInspectOpen] = useState(false)
+  const [job, setJob] = useState(null)          // live state of a background (video) scan
+  const jobRef = useRef(null)                     // { id, cancelled } - lets the polling loop and Cancel talk
   const fileInputRef = useRef(null)
   const navigate = useNavigate()
 
@@ -93,6 +132,43 @@ export default function UploadFlow({ compact = false, showRecent = false, headin
       try { setRecentFiles(JSON.parse(saved).slice(0, 4)) } catch {}
     }
   }, [showRecent])
+
+  // Leaving the page stops the polling; the scan itself keeps running server-side and lands in the history.
+  useEffect(() => () => { if (jobRef.current) jobRef.current.cancelled = true }, [])
+
+  /** Video is slow: run it as a background job and poll its real progress instead of holding one long request. */
+  const runVideoJob = async (uploadId) => {
+    const started = await startDetectionJob(uploadId)
+    let current = started.data
+    jobRef.current = { id: current.job_id, cancelled: false }
+    setJob(current)
+    let failures = 0
+    while (current.state === 'queued' || current.state === 'running') {
+      await sleep(POLL_INTERVAL_MS)
+      if (jobRef.current?.cancelled) throw new JobCancelledError()
+      try {
+        current = (await getJob(jobRef.current.id)).data
+        failures = 0
+        setJob(current)
+      } catch (err) {
+        if (err.status === 404) return getDetectionResult(uploadId)   // server restarted: the result may still exist
+        if (++failures >= 5) throw err                                  // ride out brief network hiccups
+      }
+    }
+    if (current.state === 'failed') throw new Error(current.error || 'Analysis failed.')
+    if (current.state === 'cancelled') throw new JobCancelledError()
+    return getDetectionResult(uploadId)
+  }
+
+  const cancelScan = async () => {
+    const cur = jobRef.current
+    if (cur) {
+      cur.cancelled = true
+      try { await cancelJob(cur.id) } catch { /* it may already have finished; nothing more to do */ }
+    }
+    setUploading(false); setAnalyzing(false); setDetectDone(false); setJob(null)
+    setFile(null); setError(null); setResult(null)
+  }
 
   const handleDragOver = useCallback((e) => { e.preventDefault(); setIsDragging(true) }, [])
   const handleDragLeave = useCallback((e) => { e.preventDefault(); setIsDragging(false) }, [])
@@ -106,12 +182,12 @@ export default function UploadFlow({ compact = false, showRecent = false, headin
 
   const processFile = async (selectedFile) => {
     setFile(selectedFile); setError(null); setResult(null)
-    setUploading(true); setProgress(0); setDetectDone(false); setInspectOpen(false)
+    setUploading(true); setProgress(0); setDetectDone(false); setInspectOpen(false); setJob(null)
     try {
       const uploadRes = await uploadMedia(selectedFile, (p) => setProgress(p))
       const uploadId = uploadRes.data.upload_id
       setUploading(false); setAnalyzing(true)
-      const detectRes = await runDetection(uploadId)
+      const detectRes = kindOf(selectedFile.type) === 'video' ? await runVideoJob(uploadId) : await runDetection(uploadId)
       setDetectDone(true)
       setTimeout(() => {
         setAnalyzing(false)
@@ -130,11 +206,12 @@ export default function UploadFlow({ compact = false, showRecent = false, headin
         }
       }, 500)
     } catch (err) {
-      setUploading(false); setAnalyzing(false); setError(err.message)
+      if (err instanceof JobCancelledError) return          // the user cancelled: cancelScan already reset the UI
+      setUploading(false); setAnalyzing(false); setJob(null); setError(err.message)
     }
   }
 
-  const reset = () => { setFile(null); setResult(null); setError(null); setProgress(0); setDetectDone(false); setInspectOpen(false) }
+  const reset = () => { setFile(null); setResult(null); setError(null); setProgress(0); setDetectDone(false); setInspectOpen(false); setJob(null) }
 
   const info = result ? getVerdictInfo(result.verdict || result.label) : null
 
@@ -188,7 +265,9 @@ export default function UploadFlow({ compact = false, showRecent = false, headin
                     <span className="tl-figure text-[11px] text-bone-dim w-9 text-right">{progress}%</span>
                   </div>
                 )}
-                {analyzing && <ForensicProcess done={detectDone} />}
+                {analyzing && (job
+                  ? <JobProgress job={job} onCancel={(e) => { e?.stopPropagation?.(); cancelScan() }} />
+                  : <ForensicProcess done={detectDone} />)}
               </div>
             </div>
           )}
@@ -302,6 +381,16 @@ export default function UploadFlow({ compact = false, showRecent = false, headin
               <SpecimenDossier file={file} />
             </div>
           </Disclosure>
+
+          {/* Provenance (image/video): C2PA credentials + embedded metadata. Supplementary to the verdict;
+              a conflict with the model verdict is shown up front. Cheap, so fetched automatically. */}
+          <ProvenancePanel uploadId={result.uploadId} mediaType={kindOf(file?.type)} className="mt-8" />
+
+          {/* Explainability (image/video): fetched only when opened. */}
+          <ExplanationPanel uploadId={result.uploadId} mediaType={kindOf(file?.type)} className="mt-8" />
+
+          {/* Feedback: was the verdict right? Optional, changeable, withdrawable. */}
+          <FeedbackPanel uploadId={result.uploadId} className="mt-8" />
 
           <motion.div
             initial={{ opacity: 0 }}

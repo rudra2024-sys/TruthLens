@@ -109,6 +109,80 @@ export const getDetectionResult = async (uploadId) => {
   }
 }
 
+// Feedback on a result ("was this correct?"). One per upload; PUT replaces it, DELETE withdraws it (and any consent to
+// keep the file). GET resolves to null when nothing has been submitted.
+export const getFeedback = async (uploadId) => {
+  try {
+    return (await api.get(`/detect/${uploadId}/feedback`)).data
+  } catch (err) {
+    throw new Error(friendlyError(err))
+  }
+}
+
+export const saveFeedback = async (uploadId, body) => {
+  try {
+    return (await api.put(`/detect/${uploadId}/feedback`, body)).data
+  } catch (err) {
+    throw new Error(friendlyError(err))
+  }
+}
+
+export const withdrawFeedback = async (uploadId) => {
+  try {
+    await api.delete(`/detect/${uploadId}/feedback`)
+  } catch (err) {
+    throw new Error(friendlyError(err))
+  }
+}
+
+// Background detection jobs (used for video, which is slow): start returns immediately with a job id, then poll for
+// progress. The finished result is fetched with getDetectionResult(uploadId).
+export const startDetectionJob = async (uploadId) => {
+  try {
+    return await api.post(`/detect/${uploadId}/jobs`)
+  } catch (err) {
+    throw new Error(friendlyError(err))
+  }
+}
+
+export const getJob = async (jobId) => {
+  try {
+    return await api.get(`/jobs/${jobId}`)
+  } catch (err) {
+    const e = new Error(friendlyError(err))
+    e.status = err?.response?.status
+    throw e
+  }
+}
+
+export const cancelJob = async (jobId) => {
+  try {
+    return await api.delete(`/jobs/${jobId}`)
+  } catch (err) {
+    throw new Error(friendlyError(err))
+  }
+}
+
+// Explainability: Grad-CAM heatmap (image) or per-frame scores + face crops (video). Computed on demand by
+// the backend, so it is only requested when the user opens the panel.
+export const getExplanation = async (uploadId) => {
+  try {
+    return await api.get(`/detect/${uploadId}/explain`)
+  } catch (err) {
+    throw new Error(friendlyError(err))
+  }
+}
+
+// Provenance: C2PA Content Credentials, embedded metadata and an ELA visual aid. Cheap (no model), read-only,
+// supplementary to the verdict.
+export const getProvenance = async (uploadId) => {
+  try {
+    return await api.get(`/detect/${uploadId}/provenance`)
+  } catch (err) {
+    throw new Error(friendlyError(err))
+  }
+}
+
 export const getUpload = async (uploadId) => {
   try {
     return await api.get(`/upload/${uploadId}`)

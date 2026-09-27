@@ -11,6 +11,9 @@ import CaseTag from './components/CaseTag'
 import Reveal from './components/Reveal'
 import LoadingState from './components/LoadingState'
 import Disclosure from './components/Disclosure'
+import ExplanationPanel from './components/ExplanationPanel'
+import ProvenancePanel from './components/ProvenancePanel'
+import FeedbackPanel from './components/FeedbackPanel'
 import { getVerdictInfo } from './lib/verdict'
 import { stationTag } from './lib/stations'
 
@@ -197,6 +200,22 @@ export default function ReportDetail() {
                 </Disclosure>
               </motion.div>
             )}
+
+            {/* Provenance — supplementary evidence (C2PA credentials / embedded metadata); cheap, so automatic. */}
+            <ProvenancePanel
+              uploadId={result.upload_id}
+              mediaType={upload?.media_type || (result.image_analysis ? 'image' : result.video_analysis ? 'video' : null)}
+              className="mb-10"
+            />
+
+            {/* Explainability — fetched only when opened (backend recomputes it, ~1-3 s). */}
+            <ExplanationPanel
+              uploadId={result.upload_id}
+              mediaType={upload?.media_type || (result.image_analysis ? 'image' : result.video_analysis ? 'video' : null)}
+              className="mb-10"
+            />
+
+            <FeedbackPanel uploadId={result.upload_id} className="mb-10" />
 
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.5, duration: 0.5 }}>
               <button
