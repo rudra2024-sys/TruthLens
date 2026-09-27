@@ -27,6 +27,7 @@ ENV/
 .env.*
 !.env.example
 *.pem
+!backend/app/services/provenance/trust/c2pa_trust_list.pem
 *.key
 *credentials*.json
 
@@ -88,3 +89,6 @@ Thumbs.db
 
 .env.local
 .env.*.local
+
+# evaluation harness: local manifests + raw score CSVs
+backend/eval/data/
