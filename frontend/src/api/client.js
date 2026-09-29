@@ -109,6 +109,80 @@ export const getDetectionResult = async (uploadId) => {
   }
 }
 
+// Feedback on a result ("was this correct?"). One per upload; PUT replaces it, DELETE withdraws it (and any consent to
+// keep the file). GET resolves to null when nothing has been submitted.
+export const getFeedback = async (uploadId) => {
+  try {
+    return (await api.get(`/detect/${uploadId}/feedback`)).data
+  } catch (err) {
+    throw new Error(friendlyError(err))
+  }
+}
+
+export const saveFeedback = async (uploadId, body) => {
+  try {
+    return (await api.put(`/detect/${uploadId}/feedback`, body)).data
+  } catch (err) {
+    throw new Error(friendlyError(err))
+  }
+}
+
+export const withdrawFeedback = async (uploadId) => {
+  try {
+    await api.delete(`/detect/${uploadId}/feedback`)
+  } catch (err) {
+    throw new Error(friendlyError(err))
+  }
+}
+
+// Background detection jobs (used for video, which is slow): start returns immediately with a job id, then poll for
+// progress. The finished result is fetched with getDetectionResult(uploadId).
+export const startDetectionJob = async (uploadId) => {
+  try {
+    return await api.post(`/detect/${uploadId}/jobs`)
+  } catch (err) {
+    throw new Error(friendlyError(err))
+  }
+}
+
+export const getJob = async (jobId) => {
+  try {
+    return await api.get(`/jobs/${jobId}`)
+  } catch (err) {
+    const e = new Error(friendlyError(err))
+    e.status = err?.response?.status
+    throw e
+  }
+}
+
+export const cancelJob = async (jobId) => {
+  try {
+    return await api.delete(`/jobs/${jobId}`)
+  } catch (err) {
+    throw new Error(friendlyError(err))
+  }
+}
+
+// Explainability: Grad-CAM heatmap (image) or per-frame scores + face crops (video). Computed on demand by
+// the backend, so it is only requested when the user opens the panel.
+export const getExplanation = async (uploadId) => {
+  try {
+    return await api.get(`/detect/${uploadId}/explain`)
+  } catch (err) {
+    throw new Error(friendlyError(err))
+  }
+}
+
+// Provenance: C2PA Content Credentials, embedded metadata and an ELA visual aid. Cheap (no model), read-only,
+// supplementary to the verdict.
+export const getProvenance = async (uploadId) => {
+  try {
+    return await api.get(`/detect/${uploadId}/provenance`)
+  } catch (err) {
+    throw new Error(friendlyError(err))
+  }
+}
+
 export const getUpload = async (uploadId) => {
   try {
     return await api.get(`/upload/${uploadId}`)
@@ -120,35 +194,25 @@ export const getUpload = async (uploadId) => {
 export const reportUrl = (uploadId) =>
   `/api/v1/report/${uploadId}`
 
-/*
- * The report endpoint requires the JWT bearer token, which a plain <a href>
- * navigation can't attach -- fetch it through the authenticated `api`
- * instance as a blob and trigger the browser download client-side instead.
- */
-export const downloadReport = async (uploadId, filename) => {
+export const downloadReport = async (uploadId) => {
   try {
-    const res = await api.get(`/report/${uploadId}`, { responseType: 'blob' })
-    const url = URL.createObjectURL(res.data)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = filename || `TruthLens_Report_${uploadId}.pdf`
-    document.body.appendChild(a)
-    a.click()
-    a.remove()
-    URL.revokeObjectURL(url)
+    const response = await api.get(`/report/${uploadId}`, {
+      responseType: 'blob',
+    })
+
+    const disposition = response.headers['content-disposition'] || ''
+    const match = disposition.match(/filename="?([^";]+)"?/)
+    const filename = match ? match[1] : `truthlens-report-${uploadId}.pdf`
+
+    const blobUrl = window.URL.createObjectURL(response.data)
+    const link = document.createElement('a')
+    link.href = blobUrl
+    link.download = filename
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    window.URL.revokeObjectURL(blobUrl)
   } catch (err) {
-    // With responseType: 'blob', an error response body also arrives as a
-    // Blob (not parsed JSON), so friendlyError's err.response.data.detail
-    // access would see a Blob, not the {detail: "..."} shape it expects --
-    // parse it back to JSON first when possible.
-    if (err.response?.data instanceof Blob) {
-      try {
-        const text = await err.response.data.text()
-        err.response.data = JSON.parse(text)
-      } catch {
-        // not JSON (or empty) -- fall through, friendlyError's generic path handles it
-      }
-    }
     throw new Error(friendlyError(err))
   }
 }

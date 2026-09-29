@@ -1,0 +1,58 @@
+# Production-style deployment: no source bind-mounts, DEBUG off (=> the server refuses to start without a real
+# AUTH_SECRET_KEY), data on a named volume, non-root backend. Put a TLS-terminating reverse proxy in front (docs/DEPLOYMENT.md).
+#
+#   cp .env.example .env        # then edit it: AUTH_SECRET_KEY and CORS_ORIGINS at minimum
+#   python backend/scripts/fetch_checkpoints.py --base-url <where you host the model files>
+#   docker compose -f docker-compose.prod.yml up -d --build
+name: truthlens
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.prod
+    env_file: .env
+    environment:
+      DEBUG: "false"
+      DATABASE_URL: "sqlite+aiosqlite:////data/truthlens.db"
+      UPLOAD_DIR: "/data/uploads"
+      REPORT_DIR: "/data/reports"
+      IMAGE_MODEL_CHECKPOINT: "/app/checkpoints/image/convnext_tiny_diversified_v2.pth"
+      CLIP_MODEL_CHECKPOINT: "/app/checkpoints/image_clip/clip_head_round3_portrait_app.pth"
+      IMAGE_MODEL_DEVICE: "cpu"
+      CLIP_MODEL_DEVICE: "cpu"
+      VIDEO_MODEL_V1_DEVICE: "cpu"
+    volumes:
+      - truthlens_data:/data
+      - ./models/checkpoints/image:/app/checkpoints/image:ro
+      - ./models/checkpoints/image_clip:/app/checkpoints/image_clip:ro
+      - ./backend/checkpoints/video:/app/checkpoints/video:ro
+      - clip_backbone_cache:/home/truthlens/.cache
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+    networks: [truthlens]
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        NGINX_CONF: nginx.prod.conf
+    ports:
+      - "${BIND_ADDRESS:-0.0.0.0}:${PUBLIC_PORT:-80}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    networks: [truthlens]
+
+networks:
+  truthlens:
+
+volumes:
+  truthlens_data:
+  clip_backbone_cache:

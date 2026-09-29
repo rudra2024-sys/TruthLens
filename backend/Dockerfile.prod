@@ -1,0 +1,23 @@
+# Production image: no --reload, non-root user, behind a reverse proxy (see docs/DEPLOYMENT.md).
+# Build: docker build -f backend/Dockerfile.prod -t truthlens-backend backend
+FROM python:3.11-slim
+
+ENV PYTHONUNBUFFERED=1     PYTHONDONTWRITEBYTECODE=1
+
+WORKDIR /app
+RUN useradd --create-home --uid 10001 truthlens
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY --chown=truthlens:truthlens . .
+# /data holds the SQLite database, uploads and reports (mount a volume there so they survive container restarts)
+RUN mkdir -p /data/uploads /data/reports && chown -R truthlens:truthlens /data /app
+
+USER truthlens
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3   CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')" || exit 1
+
+# One process on purpose: background-job state (progress/cancel) lives in this process's memory (see CLAUDE.md sec 13).
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers"]

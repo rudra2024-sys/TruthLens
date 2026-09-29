@@ -62,7 +62,7 @@ class ImagePipeline:
             "fake_probability": fake_probability,
             "real_probability": real_probability,
             "model_used": "ConvNeXt-Tiny",
-            "benchmark": "CIFAKE",
+            "benchmark": "CIFAKE + AI-vs-Human-Generated + 140k-Real-Fake-Faces",
             "checkpoint_epoch": self.checkpoint.get("epoch"),
             "validation_accuracy": self.checkpoint.get(
                 "best_val_accuracy"

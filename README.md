@@ -1,112 +1,106 @@
-# TruthLens — AI-Generated Media Detection Platform
+# TruthLens
 
-VIT Mumbai | Department of Information Technology | 2025-26
+**AI-generated media detection that shows its work.** Upload an image, video or audio clip and get a verdict
+(REAL / FAKE / UNCERTAIN), a confidence score, an explanation of *why*, what the file's own metadata says, and a downloadable PDF
+forensic report — with the limits of every claim stated plainly.
 
----
-
-## What actually works right now (verified end-to-end)
-
-- ✅ Upload images, video, or audio through a real drag-and-drop UI
-- ✅ File validation (type, size, empty-file checks) with real error messages
-- ✅ Full backend pipeline: upload → store → route to image/video/audio detector → save to DB → return result
-- ✅ Real SQLite database persisting every upload and result
-- ✅ Real dashboard (stats computed from the DB, not hardcoded)
-- ✅ Real history log of every scan
-- ✅ Real downloadable PDF forensic report (generated server-side with ReportLab)
-- ✅ Proper error handling — network errors, validation errors, and server errors all surface as readable messages, with retry
-- ✅ No unhandled exceptions — the previous "Something went wrong" bug is fixed (see below)
-
-## What is NOT yet real
-
-The **detection scores themselves** (EfficientNet, XceptionNet, wav2vec2, FFT, LCNN) are currently
-**deterministic placeholder values**, not the output of trained models. The architecture, database
-schema, API contracts, and UI are all built to receive real model output — but no model has been
-trained or plugged in yet. This was always the agreed phased plan (skeleton → image → audio → video),
-and training real models is genuinely multi-day work per pipeline (dataset download, GPU training,
-evaluation) that cannot be done inside a chat response.
-
-**Where to plug in a real model:** `backend/app/services/{image,video,audio}/detector.py` — each file
-has a single clearly-marked block computing the stub scores. Replace that block with real inference
-and everything downstream (DB, API, dashboard, PDF report) works unchanged.
+Final-year project — Dept. of Information Technology, VIT Mumbai, 2025–26.
 
 ---
 
-## The bug that was breaking every upload
+## What it does
 
-The previous version returned a SQLAlchemy object directly from `POST /detect/{id}` without eagerly
-loading its related scoring tables. Under async SQLAlchemy, touching a not-yet-loaded relationship
-outside of an active DB session throws a `MissingGreenlet` error — a real 500 error that the frontend
-had no way to explain, so it just showed "Something went wrong."
+| Media | Detector | What it detects |
+|---|---|---|
+| **Image** | **ConvNeXt-Tiny** (fine-tuned by the team) **+ CLIP ViT-B/16** second opinion (trained head), combined by taking the higher fake score | Real photo vs AI-generated image |
+| **Video** | **Video Model v1** — EfficientNet-B0 on 16 face-cropped frames (fine-tuned by the team, verified against the original Celeb-DF-v2 evaluator) | Face-swap deepfakes |
+| **Audio** | **AASIST** (pretrained, Jung et al. ICASSP 2022) | Real vs synthetic/cloned speech |
 
-**Fix:** all relationships now declare `lazy="selectin"`, so they're always loaded safely regardless
-of which route touches them. The main app also has a global exception handler so any future backend
-error returns a readable message instead of a silent failure.
+Scores near the decision threshold come back as **UNCERTAIN** rather than a forced call.
 
----
+### Beyond the verdict
+* **Explanations** — Grad-CAM heatmaps for images; per-frame scores and the exact face crops the model saw for video. Grad-CAM explains the
+  model's score; it is not proof of manipulation, and the UI says so.
+* **Provenance** — C2PA Content Credentials (signature, unchanged-since-signing, trust), embedded metadata and generation parameters. When the
+  models say REAL but the file declares itself AI-generated, all three surfaces (UI, API, PDF) flag the conflict. Missing metadata is never
+  treated as evidence.
+* **Background video scans** with a real progress bar, queue position and cancel — a long video no longer freezes the server.
+* **Feedback** — "was this correct?", with an opt-in (off by default) to let a file be kept for evaluation, changeable and withdrawable.
+* **PDF report** — verdict, per-model scores, explanation, provenance, caveats.
+* **Private by design** — every scan, report, job and feedback item is visible only to its owner (other users get 404, never 403).
 
-## Setup
+## How well does it work? (measured, not marketed)
 
-### Backend (Docker)
+Evaluated with the harness in [`backend/eval/`](backend/eval/) on 6,500+ images and 300+ videos; details and caveats in
+[`backend/eval/results/EVALUATION_SUMMARY.md`](backend/eval/results/EVALUATION_SUMMARY.md).
+
+| | Result |
+|---|---|
+| Image, on kinds of data it was trained on | **98.4 %** accuracy, AUC 1.00 |
+| Image, on generators it **never saw** (GenImage, OpenFake, ChatGPT) | **53 %** accuracy, AUC 0.67 — only ~27 % of AI images caught |
+| Video, unseen face swaps (RTFS) | 79 % accuracy, AUC 0.89 |
+| Video Model v1 on Celeb-DF-v2 (original protocol, 6,529 videos) | ROC-AUC 0.695 |
+| Provenance | catches 9 of the 1,026 AI images the models miss (all 8 ChatGPT ones) — but **only if the file is untouched**: every re-save we tried removed the declaration |
+| Robustness (screenshot, WhatsApp-style, WebP) | AUC stays ≥ 0.99 on familiar sources; but faint noise or heavy JPEG makes 30–40 % of *real* photos look fake ([details](backend/eval/results/robustness/report.md)) |
+
+**Bottom line:** near-perfect on data like its training data, weak on generators it hasn't seen. Read
+[`docs/ETHICS_AND_LIMITATIONS.md`](docs/ETHICS_AND_LIMITATIONS.md) before relying on a verdict — "REAL" means "no evidence found", and "FAKE" is a lead, not proof.
+
+## Stack
+* **Backend:** FastAPI (Python 3.11), async SQLAlchemy over SQLite, JWT auth · **Frontend:** React + Vite, Tailwind
+* **ML:** PyTorch (image, video), ONNX Runtime (audio), OpenCLIP · **Reports:** ReportLab · **Provenance:** c2pa-python
+* **Deploy:** Docker Compose (dev and production), nginx · **CI:** GitHub Actions (pytest + frontend build)
+
+## Running it locally
+
+### 1. Get the model files
+The checkpoints (~335 MB) are not in git. You need three files; their SHA-256 sums are in [`models/CHECKSUMS.sha256`](models/CHECKSUMS.sha256):
+
+| File | Place it at |
+|---|---|
+| `convnext_tiny_diversified_v2.pth` (~319 MB) | `models/checkpoints/image/` |
+| `clip_head_round3_portrait_app.pth` (~0.5 MB) | `models/checkpoints/image_clip/` |
+| `epoch_11_model_only.pt` (~16 MB) | `backend/checkpoints/video/` |
+
+If they are hosted somewhere you control: `python backend/scripts/fetch_checkpoints.py --base-url <folder-url>` downloads and verifies them
+(`--check` only verifies). The audio weights are small and already in git. Without the image/video files those scans fail with an error; audio still works.
+
+### 2a. With Docker
 ```bash
-docker-compose up --build
+docker-compose up --build          # app: http://localhost:3000   API docs: http://localhost:8000/docs
 ```
-Runs at `http://localhost:8000` — Swagger docs at `http://localhost:8000/docs`
+### 2b. Without Docker
+Backend and frontend commands (with the environment variables for the checkpoints) are in [`CLAUDE.md`](CLAUDE.md) §6.
 
-### Frontend
+### 3. Sign up
+Each machine has its own local database — create a fresh account. Your history, uploads and reports are private to it.
+
+## Tests and CI
 ```bash
-cd frontend
-npm install
-npm run dev
+cd backend && ../.venv/Scripts/python.exe -m pytest              # everything (~1.5 min)
+cd backend && python -m pytest -m "not models"                    # what CI runs: no model files needed
 ```
-Runs at `http://localhost:3000` (or next free port if 3000 is taken)
+200+ tests cover auth, access control, upload validation, detection routes, jobs, feedback, PDF content, explain/provenance, verdict thresholds
+and the evaluation metrics. `backend/tests/mutation_check.py` deliberately breaks guarded behaviours to prove the tests notice.
 
----
+## Deploying
+See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md): production compose file, safe start-up checks (the server refuses to start without a real
+signing key), checkpoint fetching, TLS, backups and a pre-launch checklist.
 
-## Testing it end-to-end
+## Documentation
+| | |
+|---|---|
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | System, detector, scan-flow and data-model diagrams |
+| [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) | What could go wrong, what protects against it, and the known gaps |
+| [`docs/ETHICS_AND_LIMITATIONS.md`](docs/ETHICS_AND_LIMITATIONS.md) | Accuracy limits, blind spots, bias, privacy, responsible use |
+| [`docs/DATASETS.md`](docs/DATASETS.md) | Every dataset, its licence and whether the models saw it |
+| [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) | Putting it on a server |
+| [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md) | An 8-minute presentation storyboard |
+| [`CLAUDE.md`](CLAUDE.md) | Maintained source of truth for internals: what is real ML vs heuristic vs dead code, environment variables, rules for changes |
 
-1. Open the app, go to the **Scan** tab
-2. Drop any JPG/PNG/MP4/WAV file
-3. Watch it upload (progress bar) → detect (scan animation) → show a full result: verdict, confidence gauge, pipeline score breakdown, model used, processing time
-4. Click **Download Forensic PDF Report** — a real PDF downloads
-5. Go to **Dashboard** — see the scan reflected in stats and recent activity
-6. Go to **History** — see the full log, download any past report
-
-If any step fails, the UI will show the actual error text (not a generic message) — screenshot it and that tells us exactly what's wrong.
-
----
-
-## Project structure
-
-```
-backend/app/
-├── api/routes/       upload.py, detect.py, dashboard.py, report.py
-├── core/              config.py, database.py
-├── models/            SQLAlchemy models (all relationships eager-loaded)
-├── schemas/           Pydantic response schemas
-└── services/
-    ├── image/         detector.py  ← plug in EfficientNet here
-    ├── video/         detector.py  ← plug in XceptionNet here
-    ├── audio/         detector.py  ← plug in wav2vec2 here
-    └── report/         generator.py (real PDF generation, already working)
-
-frontend/src/
-├── components/NavShell.jsx
-├── pages/             Dashboard.jsx, Scan.jsx, HistoryPage.jsx
-└── api/client.js       all backend calls, centralized error handling
-```
-
-## Next real milestone
-
-Train and plug in the **image pipeline** first (EfficientNet-B4 fine-tuned on CIFAKE — see the Dataset
-Reference Guide). That's the fastest path to one fully real, trained pipeline, which is usually enough
-for a strong FYP demo even before video/audio are trained.
-
-## Developer note (local dev)
-
-- The frontend dev server proxies `/api` to the backend. I fixed a misconfiguration where the
-    proxy was pointing to port `8010`; it now targets `http://localhost:8000` which matches the
-    backend in `docker-compose.yml`.
-- If you're running the frontend directly (not via the dev server), ensure API calls reach
-    `http://localhost:8000/api/v1` or update the hosting config appropriately.
-- I could not create a git commit from this environment because the workspace is not a git
-    repository here. Please commit the `vite.config.js` change locally if you want it tracked.
+## Honest limitations (short version)
+* Detection generalises poorly to generators it was not trained on (numbers above); consumer face-swap apps such as Akool and Magic Hour are still missed.
+* Provenance only helps on untouched files; screenshots, messaging apps and re-saves remove it.
+* Audio uses a pretrained model and has not been evaluated by this project; a teammate's separate audio model is not integrated.
+* Uploads are stored until you delete them; there is no retention policy or "delete my data" button yet (see the threat model).
+* Not a forensic tool for legal decisions: it produces leads and evidence to review, not proof.

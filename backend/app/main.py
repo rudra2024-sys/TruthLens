@@ -4,10 +4,13 @@ from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
 from app.core.config import settings
 from app.core.database import create_tables
-from app.api.routes import upload, detect, dashboard, report, auth
+from app.core.security import SECRET_KEY
+from app.core.startup import enforce_startup_checks, parse_origins
+from app.api.routes import upload, detect, dashboard, report, auth, jobs, feedback
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    enforce_startup_checks(settings.DEBUG, SECRET_KEY, parse_origins(settings.CORS_ORIGINS))   # no-op while DEBUG is on
     await create_tables()
     yield
 
@@ -15,7 +18,7 @@ app = FastAPI(title=settings.APP_NAME, version=settings.APP_VERSION, lifespan=li
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=parse_origins(settings.CORS_ORIGINS),
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -33,6 +36,8 @@ app.include_router(detect.router, prefix="/api/v1")
 app.include_router(dashboard.router, prefix="/api/v1")
 app.include_router(report.router, prefix="/api/v1")
 app.include_router(auth.router, prefix="/api/v1")
+app.include_router(jobs.router, prefix="/api/v1")
+app.include_router(feedback.router, prefix="/api/v1")
 
 @app.get("/")
 async def root():

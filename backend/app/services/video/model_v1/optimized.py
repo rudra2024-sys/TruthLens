@@ -64,12 +64,26 @@ class VideoModelV1Result:
     timings: dict[str, float] = field(default_factory=dict)
 
 
-def _decode_selected_frames(video_path: str) -> list[np.ndarray]:
-    return common.decode_selected_frames(video_path, use_grab_skip=True)
+def _decode_selected_frames(video_path: str, on_frame=None) -> list[np.ndarray]:
+    return common.decode_selected_frames(video_path, use_grab_skip=True, on_frame=on_frame)
 
 
-def predict(video_path: str, checkpoint_path: str | None = None) -> VideoModelV1Result:
+def predict(
+    video_path: str,
+    checkpoint_path: str | None = None,
+    progress=None,
+) -> VideoModelV1Result:
+    """progress (optional): progress(fraction, stage) with fraction in [0, 1], called from the calling thread.
+    Decoding is reported per captured frame (0.00-0.70), preprocessing per frame (0.70-0.90) and the forward
+    pass at 0.90 / 1.00. It observes the run and changes nothing: the result is identical with or without it.
+    An exception raised inside the callback aborts the run (used to cancel a background job)."""
     t_total0 = time.perf_counter()
+
+    def _report(frac, stage):
+        if progress is not None:
+            progress(min(max(frac, 0.0), 1.0), stage)
+
+    _report(0.0, "Loading model")
 
     t0 = time.perf_counter()
     model, device, was_loaded = _get_model_and_device(checkpoint_path)
@@ -77,12 +91,18 @@ def predict(video_path: str, checkpoint_path: str | None = None) -> VideoModelV1
     load_s = time.perf_counter() - t0 if was_loaded else 0.0
 
     t0 = time.perf_counter()
-    frames = _decode_selected_frames(video_path)
-    batch = np.stack(
-        [common.preprocess_frame(f, cascade) for f in frames], axis=0
+    frames = _decode_selected_frames(
+        video_path,
+        on_frame=(lambda k, n: _report(0.70 * k / n, f"Reading frames ({k}/{n})")) if progress else None,
     )
+    processed = []
+    for i, f in enumerate(frames):
+        processed.append(common.preprocess_frame(f, cascade))
+        _report(0.70 + 0.20 * (i + 1) / len(frames), f"Finding faces ({i + 1}/{len(frames)})")
+    batch = np.stack(processed, axis=0)
     tensor = torch.from_numpy(batch).contiguous().float().to(device)
     preprocess_s = time.perf_counter() - t0
+    _report(0.90, "Scoring frames")
 
     t0 = time.perf_counter()
     with torch.inference_mode():
@@ -99,6 +119,7 @@ def predict(video_path: str, checkpoint_path: str | None = None) -> VideoModelV1
 
     verdict = "FAKE" if probability >= common.THRESHOLD else "REAL"
     total_s = time.perf_counter() - t_total0
+    _report(1.0, "Done")
 
     return VideoModelV1Result(
         logit=mean_logit,

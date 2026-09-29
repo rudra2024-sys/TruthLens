@@ -1,0 +1,5 @@
+# SHA-256 of the deployed model checkpoints (the files themselves are gitignored - too large for git).
+# Format: <sha256>  <path relative to the repo root>   (used by backend/scripts/fetch_checkpoints.py)
+5e456fa490d7ef57b963bbb19137ad84757dcfe2755c2b3b9ef9475468b1b786  models/checkpoints/image/convnext_tiny_diversified_v2.pth
+41ab2eeaabc6cfe8e1ad472b7ea687aa6005bc176afd5985a01de4ecd5786a38  models/checkpoints/image_clip/clip_head_round3_portrait_app.pth
+91eefd295e14a527cddcd3ac51e4c134341d95b9c249ccc721cb26691ffae94d  backend/checkpoints/video/epoch_11_model_only.pt

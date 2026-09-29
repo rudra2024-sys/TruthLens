@@ -139,7 +139,9 @@ def evenly_spaced_frame_indices(frame_count: int, num_frames: int = NUM_FRAMES) 
     return np.linspace(0, frame_count - 1, num_frames).astype(int).tolist()
 
 
-def decode_selected_frames(video_path: str, use_grab_skip: bool) -> list[np.ndarray]:
+def decode_selected_frames(
+    video_path: str, use_grab_skip: bool, on_frame=None
+) -> list[np.ndarray]:
     """Port of the original evaluator's read_video_fast(): computes
     NUM_FRAMES evenly spaced positions from the container's reported
     frame count, then walks frames in order with a `current` counter,
@@ -160,6 +162,12 @@ def decode_selected_frames(video_path: str, use_grab_skip: bool) -> list[np.ndar
     frame_count <= 0 (the original's "invalid_frame_count" error path).
     Raises ShortVideoError if fewer than NUM_FRAMES positions are matched
     (the original's "only_N_frames" error path).
+
+    on_frame (optional): called as on_frame(kept, total) after each of the
+    NUM_FRAMES frames is captured, so callers can report progress. It never
+    influences frame selection; leaving it None is exactly the original
+    behaviour. An exception raised by the callback propagates (used for
+    cancellation) after the capture is released.
     """
     cap = cv2.VideoCapture(video_path)
     try:
@@ -190,6 +198,8 @@ def decode_selected_frames(video_path: str, use_grab_skip: bool) -> list[np.ndar
             if current == target:
                 frames.append(frame)
                 next_position_index += 1
+                if on_frame is not None:
+                    on_frame(len(frames), len(positions))
             current += 1
 
         if len(frames) != len(positions):
