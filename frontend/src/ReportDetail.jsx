@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useParams, Link, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { AlertCircle, Download, ArrowLeft, ChevronDown } from 'lucide-react'
-import { getDetectionResult, getUpload, reportUrl } from './api/client'
+import { AlertCircle, Download, ArrowLeft, ChevronDown, Search } from 'lucide-react'
+import { getDetectionResult, getUpload, downloadReport } from './api/client'
 import VerdictSeal from './components/VerdictSeal'
 import VerdictBadge from './components/VerdictBadge'
 import ConfidenceGauge from './components/ConfidenceGauge'
@@ -16,10 +16,11 @@ import { stationTag } from './lib/stations'
 
 /**
  * Evidence rows are labeled for what the backend actually computed, per
- * modality — never a specific model name the pipeline doesn't use. See
- * CLAUDE.md's Phase 3 audit: video is a byte-entropy heuristic, and the
- * audio DB columns (wav2vec_score/lcnn_score) are legacy names that the
- * active AASIST detector repurposes, not a wav2vec2/LCNN pipeline.
+ * modality — never a specific model name, since the active backend for a
+ * given modality can change (see AUDIO_MODEL_BACKEND / VIDEO_MODEL_BACKEND
+ * in the backend). The audio DB columns (wav2vec_score/lcnn_score) are
+ * legacy names kept for compatibility; they hold mean/std spoof probability
+ * from whichever audio backend is active, not literally wav2vec2/LCNN output.
  */
 function EvidenceRows({ result }) {
   const rows = []
@@ -39,8 +40,10 @@ function EvidenceRows({ result }) {
   }
   if (result.audio_analysis) {
     const a = result.audio_analysis
-    rows.push(['AASIST spoof probability', `${(a.wav2vec_score * 100).toFixed(1)}%`])
-    rows.push(['AASIST score variability', `${(a.lcnn_score * 100).toFixed(1)}%`])
+    rows.push(['Audio spoof probability', `${(a.wav2vec_score * 100).toFixed(1)}%`])
+    rows.push(['Audio score variability', `${(a.lcnn_score * 100).toFixed(1)}%`])
+    if (a.duration_s != null) rows.push(['Audio duration analyzed', `${a.duration_s.toFixed(1)}s`])
+    if (a.windows_analyzed != null) rows.push(['Windows analyzed', String(a.windows_analyzed)])
   }
 
   if (rows.length === 0) return null
@@ -60,11 +63,26 @@ function EvidenceRows({ result }) {
 
 export default function ReportDetail() {
   const { id: uploadId } = useParams()
+  const navigate = useNavigate()
   const [result, setResult] = useState(null)
   const [upload, setUpload] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [logOpen, setLogOpen] = useState(false)
+  const [downloading, setDownloading] = useState(false)
+  const [downloadError, setDownloadError] = useState(null)
+
+  const handleDownload = async () => {
+    setDownloading(true)
+    setDownloadError(null)
+    try {
+      await downloadReport(uploadId, `TruthLens_Report_${upload?.file_name || uploadId}.pdf`)
+    } catch (err) {
+      setDownloadError(err.message)
+    } finally {
+      setDownloading(false)
+    }
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -196,16 +214,30 @@ export default function ReportDetail() {
               </motion.div>
             )}
 
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.5, duration: 0.5 }}>
-              <a
-                href={reportUrl(result.upload_id)}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 px-6 py-3 bg-brass text-ground rounded-[3px] text-[12px] font-medium tracking-[0.08em] uppercase btn-lift"
+            <motion.div
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.5, duration: 0.5 }}
+              className="flex items-center gap-4 flex-wrap"
+            >
+              <button
+                type="button"
+                onClick={handleDownload}
+                disabled={downloading}
+                className="inline-flex items-center gap-2 px-6 py-3 bg-brass text-ground rounded-[3px] text-[12px] font-medium tracking-[0.08em] uppercase btn-lift disabled:opacity-60 disabled:cursor-wait"
               >
-                <Download size={15} strokeWidth={1.75} /> Download PDF Report
-              </a>
+                <Download size={15} strokeWidth={1.75} className={downloading ? 'animate-pulse' : ''} />
+                {downloading ? 'Preparing Report…' : 'Download PDF Report'}
+              </button>
+              <button
+                type="button"
+                onClick={() => navigate('/verify')}
+                className="inline-flex items-center gap-2 px-6 py-3 bg-panel-raised border border-line-strong text-bone rounded-[3px] text-[12px] font-medium tracking-[0.08em] uppercase btn-lift"
+              >
+                <Search size={15} strokeWidth={1.75} /> Verify Another File
+              </button>
             </motion.div>
+            {downloadError && (
+              <p className="mt-3 text-[13px] text-verdictDanger">{downloadError}</p>
+            )}
           </div>
         </Reveal>
       </div>

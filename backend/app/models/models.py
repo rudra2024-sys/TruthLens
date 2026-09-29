@@ -132,8 +132,10 @@ class VideoAnalysis(Base):
 
 class AudioAnalysis(Base):
     __tablename__ = "audio_analysis"
-    analysis_id:    Mapped[str]   = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    result_id:       Mapped[str]  = mapped_column(String, ForeignKey("detection_results.result_id"))
-    wav2vec_score:   Mapped[float] = mapped_column(Float)
-    lcnn_score:      Mapped[float] = mapped_column(Float)
+    analysis_id:      Mapped[str]   = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    result_id:         Mapped[str]  = mapped_column(String, ForeignKey("detection_results.result_id"))
+    wav2vec_score:     Mapped[float] = mapped_column(Float)
+    lcnn_score:        Mapped[float] = mapped_column(Float)
+    duration_s:        Mapped[float | None] = mapped_column(Float, nullable=True)
+    windows_analyzed:  Mapped[int | None] = mapped_column(Integer, nullable=True)
     result: Mapped["DetectionResult"] = relationship("DetectionResult", back_populates="audio_analysis")

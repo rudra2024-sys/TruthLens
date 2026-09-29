@@ -120,6 +120,39 @@ export const getUpload = async (uploadId) => {
 export const reportUrl = (uploadId) =>
   `/api/v1/report/${uploadId}`
 
+/*
+ * The report endpoint requires the JWT bearer token, which a plain <a href>
+ * navigation can't attach -- fetch it through the authenticated `api`
+ * instance as a blob and trigger the browser download client-side instead.
+ */
+export const downloadReport = async (uploadId, filename) => {
+  try {
+    const res = await api.get(`/report/${uploadId}`, { responseType: 'blob' })
+    const url = URL.createObjectURL(res.data)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename || `TruthLens_Report_${uploadId}.pdf`
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+  } catch (err) {
+    // With responseType: 'blob', an error response body also arrives as a
+    // Blob (not parsed JSON), so friendlyError's err.response.data.detail
+    // access would see a Blob, not the {detail: "..."} shape it expects --
+    // parse it back to JSON first when possible.
+    if (err.response?.data instanceof Blob) {
+      try {
+        const text = await err.response.data.text()
+        err.response.data = JSON.parse(text)
+      } catch {
+        // not JSON (or empty) -- fall through, friendlyError's generic path handles it
+      }
+    }
+    throw new Error(friendlyError(err))
+  }
+}
+
 export const signup = async (name, email, password) => {
   try {
     return await api.post('/auth/signup', {

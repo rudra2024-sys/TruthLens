@@ -45,6 +45,10 @@ dist/
 build/
 
 # ---- Runtime-generated app data (uploads, DB, reports) ----
+# Top-level /uploads/ (not backend/uploads/) shows up when the backend is started with its
+# cwd at the repo root instead of backend/ (relative UPLOAD_DIR) -- exclude it too so a stray
+# cwd doesn't leak local test files into a commit.
+/uploads/
 backend/uploads/
 backend/reports/
 backend/_smoke_test_fixtures/

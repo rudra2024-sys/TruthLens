@@ -2,7 +2,7 @@ import React, { useState, useRef, useCallback, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { Image as ImageIcon, Video as VideoIcon, AudioLines, Upload as UploadIcon, Download, Search, ChevronDown, RotateCcw } from 'lucide-react'
-import { uploadMedia, runDetection } from '../api/client'
+import { uploadMedia, runDetection, downloadReport } from '../api/client'
 import { ACCEPTED_INPUT_ACCEPT, ACCEPTED_FORMAT_CHIPS } from '../lib/acceptedFormats'
 import VerdictBadge from './VerdictBadge'
 import VerdictSeal from './VerdictSeal'
@@ -83,8 +83,23 @@ export default function UploadFlow({ compact = false, showRecent = false, headin
   const [error, setError] = useState(null)
   const [recentFiles, setRecentFiles] = useState([])
   const [inspectOpen, setInspectOpen] = useState(false)
+  const [downloading, setDownloading] = useState(false)
+  const [downloadError, setDownloadError] = useState(null)
   const fileInputRef = useRef(null)
   const navigate = useNavigate()
+
+  const handleDownload = async () => {
+    if (!result) return
+    setDownloading(true)
+    setDownloadError(null)
+    try {
+      await downloadReport(result.uploadId, `TruthLens_Report_${result.filename || result.uploadId}.pdf`)
+    } catch (err) {
+      setDownloadError(err.message)
+    } finally {
+      setDownloading(false)
+    }
+  }
 
   useEffect(() => {
     if (!showRecent) return
@@ -336,10 +351,27 @@ export default function UploadFlow({ compact = false, showRecent = false, headin
             <button onClick={() => navigate(`/report/${result.uploadId}`)} className="flex items-center gap-2 bg-brass text-ground px-6 py-3 rounded-[4px] text-[12px] font-medium tracking-[0.08em] uppercase btn-lift">
               View Full Report <ArrowRight />
             </button>
-            <a href={`/api/v1/report/${result.uploadId}`} download className="flex items-center gap-2 text-[12px] font-medium tracking-[0.06em] text-bone-dim hover:text-bone transition-colors duration-300 link-underline px-4 py-3">
-              <Download size={15} strokeWidth={1.75} /> Download PDF
-            </a>
+            <button
+              type="button"
+              onClick={handleDownload}
+              disabled={downloading}
+              className="flex items-center gap-2 text-[12px] font-medium tracking-[0.06em] text-bone-dim hover:text-bone transition-colors duration-300 link-underline px-4 py-3 disabled:opacity-60 disabled:cursor-wait"
+            >
+              <Download size={15} strokeWidth={1.75} className={downloading ? 'animate-pulse' : ''} />
+              {downloading ? 'Preparing…' : 'Download PDF'}
+            </button>
+            <button
+              type="button"
+              onClick={reset}
+              className="flex items-center gap-2 text-[12px] font-medium tracking-[0.06em] text-bone-dim hover:text-bone transition-colors duration-300 link-underline px-4 py-3"
+            >
+              <RotateCcw size={15} strokeWidth={1.75} />
+              Verify Another File
+            </button>
           </motion.div>
+          {downloadError && (
+            <p className="mt-3 text-[13px] text-verdictDanger">{downloadError}</p>
+          )}
         </motion.div>
       )}
     </>

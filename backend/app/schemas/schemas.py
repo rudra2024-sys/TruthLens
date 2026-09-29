@@ -30,32 +30,40 @@ class VideoAnalysisOut(BaseModel):
         from_attributes = True
 
 class AudioAnalysisOut(BaseModel):
-    # DEPRECATED field names: kept only for backward compatibility with
-    # existing API consumers and the frontend. The active audio detector is
-    # AASIST, not Wav2Vec2 or LCNN -- neither of those models is run anywhere
-    # in this pipeline. See aasist_spoof_probability / aasist_spoof_probability_std
-    # below for the same values under honest names. Do not read these two as
-    # evidence that Wav2Vec2/LCNN were used.
+    # DEPRECATED field names: kept only for backward compatibility with existing
+    # API consumers and the frontend. These columns are model-agnostic in the DB
+    # (mean/std spoof-probability across analyzed windows) but the field names
+    # ("wav2vec"/"lcnn") don't describe whichever backend actually produced them
+    # -- see AUDIO_MODEL_BACKEND in services/audio/backend.py for which one is
+    # active. See spoof_probability / spoof_probability_std below for the same
+    # values under honest, model-agnostic names.
     wav2vec_score: float = Field(
-        description="DEPRECATED name. Actually holds AASIST's mean spoof probability. "
-                     "See aasist_spoof_probability."
+        description="DEPRECATED name. Mean spoof/deepfake probability across analyzed "
+                     "windows, from whichever audio backend is active. See spoof_probability."
     )
     lcnn_score: float = Field(
-        description="DEPRECATED name. Actually holds AASIST's cross-window spoof-probability "
-                     "std deviation. See aasist_spoof_probability_std."
+        description="DEPRECATED name. Spoof/deepfake-probability standard deviation across "
+                     "analyzed windows, from whichever audio backend is active. "
+                     "See spoof_probability_std."
+    )
+    duration_s: Optional[float] = Field(
+        default=None, description="Duration of the analyzed audio, in seconds."
+    )
+    windows_analyzed: Optional[int] = Field(
+        default=None, description="Number of fixed-length windows the audio was split into for analysis."
     )
 
     class Config:
         from_attributes = True
 
-    @computed_field(description="AASIST mean spoof probability across analyzed windows (0-1). Same value as wav2vec_score, under its real name.")
+    @computed_field(description="Mean spoof/deepfake probability across analyzed windows (0-1), from whichever audio backend is active. Same value as wav2vec_score, under a model-agnostic name.")
     @property
-    def aasist_spoof_probability(self) -> float:
+    def spoof_probability(self) -> float:
         return self.wav2vec_score
 
-    @computed_field(description="AASIST spoof-probability standard deviation across analyzed windows (0-1). Same value as lcnn_score, under its real name.")
+    @computed_field(description="Spoof/deepfake-probability standard deviation across analyzed windows (0-1), from whichever audio backend is active. Same value as lcnn_score, under a model-agnostic name.")
     @property
-    def aasist_spoof_probability_std(self) -> float:
+    def spoof_probability_std(self) -> float:
         return self.lcnn_score
 
 
