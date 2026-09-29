@@ -94,7 +94,10 @@ def load_checkpoint(model: nn.Module, checkpoint_path: str | Path | None = None)
         raise FileNotFoundError(f"Audio model v1 checkpoint not found: {path}")
     # Exported as a raw state_dict (torch.save(model.state_dict(), ...)), not wrapped
     # in a {"model_state_dict": ...} dict like the video checkpoint -- load directly.
-    state_dict = torch.load(path, map_location="cpu")
+    # weights_only=False: PyTorch's weights_only=True default (varies by version) can
+    # reject this first-party checkpoint's pickled contents outright on some installs --
+    # it's our own training output, not a third-party download, so this is safe.
+    state_dict = torch.load(path, map_location="cpu", weights_only=False)
     model.load_state_dict(state_dict)
 
 
