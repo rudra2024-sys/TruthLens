@@ -125,6 +125,71 @@ function VideoExplanation({ data }) {
   )
 }
 
+function AudioExplanation({ data }) {
+  const windows = data.windows || []
+  return (
+    <div>
+      <p className="text-[13px] text-bone-dim mb-4">
+        Mean deepfake probability <span className="tl-figure text-bone">{pct(data.mean_probability)}</span> vs
+        decision threshold <span className="tl-figure text-bone">{data.threshold}</span> —{' '}
+        <span className="tl-figure text-bone">{data.windows_above_threshold}</span> of {windows.length} windows
+        individually above it.
+      </p>
+
+      {/* Per-window deepfake probability: the model's own score for each sampled 4s window. */}
+      <div
+        className="relative h-[120px] border border-line rounded-[3px] p-2 bg-ground"
+        role="img"
+        aria-label={`Per-window deepfake probability, ${data.windows_above_threshold} of ${windows.length} windows above the threshold`}
+      >
+        <div className="relative h-full">
+          <div
+            className="absolute left-0 right-0 border-t border-dashed border-verdictCaution/80"
+            style={{ bottom: `${data.threshold * 100}%` }}
+          />
+          <div className="flex items-end gap-[3px] h-full">
+            {windows.map((w) => (
+              <div
+                key={w.order}
+                className={w.probability >= data.threshold ? 'bg-verdictDanger' : 'bg-brass-deep'}
+                style={{ height: `${Math.max(1, w.probability * 100)}%`, flex: 1 }}
+                title={`window ${w.order + 1} (${w.start_s.toFixed(1)}s-${w.end_s.toFixed(1)}s): ${pct(w.probability)} fake`}
+              />
+            ))}
+          </div>
+        </div>
+      </div>
+      <p className="tl-hud-label !text-[9px] mt-2">P(fake) per window · dashed line = decision threshold</p>
+
+      <div className="grid sm:grid-cols-2 gap-6 mt-6">
+        <figure>
+          <img
+            src={data.spectrogram}
+            alt={`Spectrogram of window ${(data.saliency_window_order ?? 0) + 1}`}
+            className="w-full max-h-[280px] object-contain rounded-[3px] border border-line bg-ground"
+          />
+          <figcaption className="tl-hud-label !text-[9px] mt-2">
+            Spectrogram — window {(data.saliency_window_order ?? 0) + 1}
+          </figcaption>
+        </figure>
+        {data.saliency && (
+          <figure>
+            <img
+              src={data.saliency}
+              alt="Time-saliency overlay on the spectrogram"
+              className="w-full max-h-[280px] object-contain rounded-[3px] border border-line bg-ground"
+            />
+            <figcaption className="tl-hud-label !text-[9px] mt-2">
+              Time-saliency — which moments drove the score
+            </figcaption>
+          </figure>
+        )}
+      </div>
+      {data.saliency && <HeatLegend />}
+    </div>
+  )
+}
+
 /**
  * On-demand explainability panel. Nothing is fetched until the user opens it (the backend recomputes the
  * attribution with the deployed model, ~1-3 s), and everything shown comes from the model's real output — the
@@ -134,7 +199,7 @@ export default function ExplanationPanel({ uploadId, mediaType, className = '' }
   const [open, setOpen] = useState(false)
   const [state, setState] = useState({ status: 'idle', data: null, error: null })
 
-  if (mediaType !== 'image' && mediaType !== 'video') return null
+  if (mediaType !== 'image' && mediaType !== 'video' && mediaType !== 'audio') return null
 
   const toggle = () => {
     const next = !open
@@ -176,7 +241,9 @@ export default function ExplanationPanel({ uploadId, mediaType, className = '' }
           {status === 'done' && data.available && (
             <>
               <p className="tl-hud-label !text-[9px] mb-4">{data.method}</p>
-              {data.media_type === 'image' ? <ImageExplanation data={data} /> : <VideoExplanation data={data} />}
+              {data.media_type === 'image' && <ImageExplanation data={data} />}
+              {data.media_type === 'video' && <VideoExplanation data={data} />}
+              {data.media_type === 'audio' && <AudioExplanation data={data} />}
               {data.note && <p className="text-[12px] text-bone-faint mt-5 max-w-[640px]">{data.note}</p>}
             </>
           )}

@@ -136,6 +136,64 @@ def test_atomic_save_keeps_the_previous_file_and_survives_a_crash_mid_run(tmp_pa
     assert len(out["keys"]) == 12 and len(calls) <= 12 - 6           # what was saved before the crash is not redone
 
 
+def test_cached_subset_returns_only_already_extracted_items_in_order(tmp_path, capsys):
+    ns = make_env(tmp_path, [])
+    ns["build_feature_cache"](items(5), tmp_path / "train_features_v5_shard0of1.pt")   # items 0..4 cached
+    capsys.readouterr()
+    out = ns["cached_subset"](items(10))                                              # ask about 0..9
+    assert [it[1] for it in out] == [f"/vid/{i}.mp4" for i in range(5)]
+    text = capsys.readouterr().out
+    assert "5 of 10 available now" in text
+
+
+def test_cached_subset_feeds_build_feature_cache_with_nothing_left_to_extract(tmp_path):
+    calls = []
+    ns = make_env(tmp_path, calls)
+    path = tmp_path / "train_features_v5_shard0of1.pt"
+    ns["build_feature_cache"](items(5), path)
+    calls.clear()
+    available = ns["cached_subset"](items(10))
+    out = ns["build_feature_cache"](available, path)
+    assert calls == [] and len(out["keys"]) == 5
+
+
+def test_build_feature_cache_returns_empty_tensor_instead_of_crashing(tmp_path):
+    """Regression: torch.stack([]) used to raise when a split has nothing cached yet (e.g. val_items
+    filtered down to zero because extraction hadn't reached the val portion of the queue)."""
+    ns = make_env(tmp_path, [])
+    ns["build_feature_cache"](items(5), tmp_path / "train_features_v5_shard0of1.pt")  # something cached, elsewhere
+    out = ns["build_feature_cache"]([], tmp_path / "val_features_v5_shard0of1.pt")
+    assert out["features"].shape == (0, 16, D)
+    assert out["labels"].tolist() == [] and out["keys"] == []
+
+
+def test_cached_identity_split_only_uses_fully_cached_identities(tmp_path):
+    ns = make_env(tmp_path, [])
+    # identity "a" -> 2 samples both cached; "b" -> 1 sample cached; "c" -> 1 sample NOT cached
+    groups = {
+        "a": [("video", "/vid/a1.mp4", 0), ("video", "/vid/a2.mp4", 1)],
+        "b": [("video", "/vid/b1.mp4", 0)],
+        "c": [("video", "/vid/c1.mp4", 1)],
+    }
+    cached = [("video", "/vid/a1.mp4", 0, 0), ("video", "/vid/a2.mp4", 1, 0), ("video", "/vid/b1.mp4", 0, 0)]
+    ns["build_feature_cache"](cached, tmp_path / "train_features_v5_shard0of1.pt")
+    train_set, val_set = ns["cached_identity_split"](groups, val_frac=0.5, seed=0)
+    all_ids = {p for _, p, _ in train_set + val_set}
+    assert "/vid/c1.mp4" not in all_ids                              # identity "c" was never cached, excluded
+    assert all_ids == {"/vid/a1.mp4", "/vid/a2.mp4", "/vid/b1.mp4"}   # only fully-cached identities used
+    assert not (set(s[1] for s in train_set) & set(s[1] for s in val_set))  # no path in both splits
+
+
+def test_cached_identity_split_keeps_an_identitys_samples_together(tmp_path):
+    ns = make_env(tmp_path, [])
+    groups = {str(i): [("video", "/vid/%d.mp4" % i, i % 2)] for i in range(10)}
+    cached = [("video", "/vid/%d.mp4" % i, i % 2, 0) for i in range(10)]
+    ns["build_feature_cache"](cached, tmp_path / "train_features_v5_shard0of1.pt")
+    train_set, val_set = ns["cached_identity_split"](groups, val_frac=0.3, seed=1)
+    assert len(val_set) >= 1 and len(train_set) >= 1
+    assert len(train_set) + len(val_set) == 10
+
+
 def test_cache_report_counts_and_flags_leakage(tmp_path, capsys):
     ns = make_env(tmp_path, [])
     ns["build_feature_cache"](items(10), tmp_path / "train_features_v5_shard0of1.pt")

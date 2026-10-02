@@ -17,6 +17,7 @@ def test_upload_image_ok(client, auth):
 
 @pytest.mark.parametrize("ctype,expected", [
     ("image/jpeg", "image"), ("video/mp4", "video"), ("audio/wav", "audio"),
+    ("audio/mp4", "audio"), ("audio/x-m4a", "audio"), ("audio/m4a", "audio"),
 ])
 def test_upload_maps_content_type_to_media_type(client, auth, ctype, expected):
     r = client.post("/api/v1/upload/", files={"file": ("f.bin", b"x" * 100, ctype)}, headers=auth)

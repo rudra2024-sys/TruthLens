@@ -13,7 +13,8 @@ class Settings(BaseSettings):
 
     ALLOWED_IMAGE_TYPES: list = ["image/jpeg", "image/png", "image/webp"]
     ALLOWED_VIDEO_TYPES: list = ["video/mp4", "video/avi", "video/quicktime", "video/webm"]
-    ALLOWED_AUDIO_TYPES: list = ["audio/wav", "audio/mpeg", "audio/flac", "audio/x-wav", "audio/mp3"]
+    ALLOWED_AUDIO_TYPES: list = ["audio/wav", "audio/mpeg", "audio/flac", "audio/x-wav", "audio/mp3",
+                                  "audio/mp4", "audio/x-m4a", "audio/m4a"]
 
     FAKE_THRESHOLD: float = 0.5
 

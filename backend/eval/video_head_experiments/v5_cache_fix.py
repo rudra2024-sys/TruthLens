@@ -5,6 +5,15 @@
 #     exec(open("/content/v5_cache_fix.py").read())
 #     cache_report(train_items, val_items)          # optional: shows how much of the cache matches this run
 #
+# To stop waiting on the remaining extraction and train on whatever is already cached across every account's
+# Drive cache file so far, filter both item lists down to only what is already cached BEFORE calling
+# build_feature_cache, so it returns immediately instead of extracting the rest:
+#
+#     train_items = cached_subset(train_items)
+#     val_items = cached_subset(val_items)
+#     train_cache = build_feature_cache(train_items, str(DRIVE_DIR / "train_features_v5_shard0of1.pt"))
+#     val_cache = build_feature_cache(val_items, str(DRIVE_DIR / "val_features_v5_shard0of1.pt"))
+#
 # What it fixes
 #   1. The old build_feature_cache returned EVERY entry in the cache file, including entries left over from an older
 #      train/val split. Some of those can be current VALIDATION items, which inflates the validation scores (leakage).
@@ -16,6 +25,7 @@
 #
 # Written without f-strings/braces on purpose: pasting code into Colab has mangled those before.
 import os
+import random
 import shutil
 import time
 import zlib
@@ -93,6 +103,43 @@ def cache_report(train_items, val_items):
                 leak += sum(1 for k in c["keys"] if k in vk)
     print("  items in a TRAIN cache file that are VALIDATION items in this run:", leak,
           "(the old code would have trained on these)")
+
+
+def cached_subset(items):
+    """Filter an items list (train_items or val_items) down to only the ones already present in
+    SOME cache file in DRIVE_DIR, preserving order. Pass the result to build_feature_cache instead
+    of the full list to train on whatever has been extracted so far, without waiting for the rest
+    (build_feature_cache then reports 0 items to extract and returns straight from the pool)."""
+    pool = _load_pool()
+    kept = [it for it in items if _key(it[1], it[3]) in pool]
+    by_label = {}
+    for _, _, l, _ in kept:
+        by_label[l] = by_label.get(l, 0) + 1
+    print("cached_subset:", len(kept), "of", len(items), "available now; by label:", by_label)
+    return kept
+
+
+def cached_identity_split(groups, val_frac=0.15, seed=None):
+    """Re-derive a fresh, leak-safe train/val split using ONLY identities that are already fully
+    cached (every one of that identity's samples has its view-0 feature extracted). Use this
+    instead of filtering the ORIGINAL train/val split when extraction hasn't reached the val
+    portion of the queue yet (train_items are extracted before val_items, so early on the cache
+    can be 100% train and 0% val -- filtering the original split then yields an empty val set).
+    Returns (train_set, val_set), each a list of (kind, path, label) samples, in the same shape
+    as the notebook's own train_set/val_set -- build train_items/val_items from these as usual."""
+    pool = _load_pool()
+    cached_ids = [i for i in groups if all(_key(p, 0) in pool for _, p, _ in groups[i])]
+    print(len(cached_ids), "of", len(groups), "identities fully cached (view 0)")
+    ids = sorted(cached_ids)
+    random.Random(seed).shuffle(ids)
+    n_val = max(1, int(len(ids) * val_frac))
+    val_ids = set(ids[:n_val])
+    train_ids = set(ids[n_val:])
+    train_set = [s for i in train_ids for s in groups[i]]
+    val_set = [s for i in val_ids for s in groups[i]]
+    print("cached-only split -- identities: train", len(train_ids), "/ val", len(val_ids),
+          "| samples: train", len(train_set), "/ val", len(val_set))
+    return train_set, val_set
 
 
 def split_fingerprint():
@@ -209,7 +256,17 @@ def build_feature_cache(items, cache_path, log_every=100):
         sources_out.append(source_of(k, p))
     print("returning", len(keys_out), "items;", missing, "could not be extracted")
     out = {}
-    out["features"] = torch.stack(feats_out)
+    if feats_out:
+        out["features"] = torch.stack(feats_out)
+    else:
+        # Nothing to return (e.g. a val split with nothing cached yet) -- torch.stack([]) raises
+        # RuntimeError, so build an empty-but-correctly-shaped tensor instead of crashing.
+        sample = next(iter(pool.values()), None) or (own_features[0] if own_features else None)
+        if sample is None:
+            raise ValueError("build_feature_cache: nothing was requested/cached, and no cached "
+                              "feature exists anywhere to infer the empty tensor's shape from.")
+        feat = sample[0] if isinstance(sample, tuple) else sample
+        out["features"] = torch.empty((0,) + tuple(feat.shape), dtype=feat.dtype)
     out["labels"] = torch.tensor(labels_out, dtype=torch.float32)
     out["keys"] = keys_out
     out["sources"] = torch.tensor(sources_out, dtype=torch.long)

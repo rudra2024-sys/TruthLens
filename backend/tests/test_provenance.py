@@ -135,3 +135,51 @@ def test_video_reports_container_facts_and_no_credentials(tmp_path):
     pv = build_provenance(up(path, "video"), verdict("REAL"))
     assert pv.available and pv.container["width"] == 64 and pv.container["height"] == 48
     assert pv.assessment.level == "none"
+
+
+def _write_wav(path, seconds=2.0, sr=16000):
+    import numpy as np
+    import wave
+
+    t = np.linspace(0, seconds, int(sr * seconds), endpoint=False)
+    samples = (0.2 * np.sin(2 * np.pi * 220 * t) * 32767).astype(np.int16)
+    with wave.open(str(path), "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(sr)
+        w.writeframes(samples.tobytes())
+
+
+def test_audio_reports_container_facts_and_no_credentials(tmp_path):
+    path = tmp_path / "a.wav"
+    _write_wav(path, seconds=2.0)
+    pv = build_provenance(up(path, "audio"), verdict("REAL"))
+    assert pv.available
+    assert pv.container["sample_rate"] == 16000 and pv.container["channels"] == 1
+    assert pv.container["duration_s"] == pytest.approx(2.0, abs=0.05)
+    assert pv.assessment.level == "none"
+    assert pv.metadata is None and pv.ela is None and pv.watermark is None
+    assert any(s.kind == "absent" for s in pv.signals)
+
+
+def test_audio_c2pa_signals_feed_the_same_assessment_path_as_image(tmp_path):
+    """Audio has no pixel-level signals, but a C2PA AI declaration should assess identically to image/video -
+    read_c2pa is media-agnostic, so this only has to confirm the audio branch actually wires it in."""
+    import types
+    import app.services.provenance.service as svc
+
+    path = tmp_path / "a.wav"
+    _write_wav(path)
+    fake_c2pa = types.SimpleNamespace(
+        present=True, ai_declared=True, issuer="Test Issuer", signer_name=None, generator="TestGen",
+        signed_at=None, actions=[], content_intact=True, signature_valid=True, signer_trusted=False,
+    )
+    original = svc.read_c2pa
+    svc.read_c2pa = lambda p: fake_c2pa
+    try:
+        pv = build_provenance(up(path, "audio"), verdict("REAL"))
+    finally:
+        svc.read_c2pa = original
+    assert pv.available and pv.assessment.level == "declared_ai"
+    assert pv.assessment.conflict_note and "REAL" in pv.assessment.conflict_note
+    assert not any(s.kind == "absent" for s in pv.signals)

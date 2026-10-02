@@ -29,8 +29,10 @@ from app.core.config import settings
 from app.services.detection_errors import UnprocessableMediaError
 from app.services.detection_interface import DetectionResult
 from app.services.heuristics import analyze_video, clamp01
+from app.services.video import cnn_gru_v5
 from app.services.video.model_v1 import common as model_v1_common
 from app.services.video.model_v1 import optimized as model_v1_optimized
+from app.services.video.model_v1 import rotation_aware as model_v1_rotation_aware
 
 
 @dataclass(frozen=True)
@@ -144,9 +146,104 @@ class VideoModelV1Backend:
         )
 
 
+class CnnGruV5Backend:
+    """EXPERIMENTAL, opt-in only -- NOT the production default. CNN+BiGRU temporal head
+    trained Sep-Oct 2026 (see eval/video_head_experiments/, CLAUDE.md sections 3/17/18).
+    Reuses the same frozen EfficientNet-B0 feature extractor as VideoModelV1Backend, with
+    a trained BiGRU head on top -- see app/services/video/cnn_gru_v5.py.
+
+    metadata.validated=False on purpose: the checkpoint's self-reported real-world AUC
+    (0.76 on the 10 local ground-truth videos) is NOT an independent measurement -- its
+    own checkpoint_selection process used those same 10 videos to pick the epoch. Re-run
+    against the live wiring here (eval/video_head_experiments/eval_cnn_rnn.py, pointed at
+    this checkpoint) confirms the underlying scores are degenerate: 9 of 10 videos land
+    within ~0.06 of 0.0 regardless of true label, and the AUC is propped up almost
+    entirely by one fake video scoring 0.99. Select via VIDEO_MODEL_BACKEND=cnn_gru_v5 to
+    keep evaluating it against new real-world footage -- do not make it the default
+    without a larger, honestly held-out real-world AUC measurement (see CLAUDE.md).
+    """
+
+    metadata = VideoModelMetadata(
+        name="TruthLens Video CNN+BiGRU v5 (experimental)",
+        architecture="EfficientNet-B0 features (frozen) + BiGRU temporal head",
+        checkpoint_path=str(cnn_gru_v5.resolve_checkpoint_path()),
+        validated=False,
+    )
+
+    def score(self, path: str, progress=None) -> DetectionResult:
+        # progress is accepted for interface parity; this backend has no per-frame callback yet.
+        try:
+            result = cnn_gru_v5.predict(path)
+        except ValueError as e:
+            raise UnprocessableMediaError(
+                "This video could not be analyzed -- it may be too short, "
+                "corrupted, or in an unsupported format."
+            ) from e
+
+        verdict = _band_verdict(result.probability, model_v1_common.THRESHOLD)
+
+        return DetectionResult(
+            verdict=verdict,
+            confidence=result.probability,
+            model_used=self.metadata.name,
+            processing_time_ms=0.0,  # caller (video/detector.py) fills in the real elapsed time
+            raw_scores={
+                "structure": result.probability,
+                "windows": result.num_frames,
+            },
+        )
+
+
+class VideoModelV1RotationAwareBackend:
+    """EXPERIMENTAL, opt-in only -- NOT the production default. Identical to VideoModelV1Backend (same
+    checkpoint, same architecture, same crop math) except frames are rotated 90/180/270 degrees before the
+    face crop when the native orientation finds no face in any of the 16 sampled frames -- see
+    app/services/video/model_v1/{orientation,rotation_aware}.py and CLAUDE.md section 19.
+
+    metadata.validated=False until measured against more than the 10 local ground-truth videos: it is known to
+    turn a 0-face-found clip into a correctly-cropped one (confirmed by hand on the Akool/Magic Hour blind spot
+    in CLAUDE.md section 3), but whether that crop change actually flips the model's verdict toward correct --
+    as opposed to just being a better-looking crop that still scores wrong -- needs the broader eval harness
+    (backend/eval/), not just this one clip, before this could be considered for the default.
+    """
+
+    metadata = VideoModelMetadata(
+        name="TruthLens Video Model v1 (EfficientNet-B0, epoch 11) + orientation fallback",
+        architecture="EfficientNet-B0, 16-frame mean-logit pooling, Haar rotation fallback",
+        checkpoint_path=str(model_v1_common.resolve_checkpoint_path()),
+        validated=False,
+    )
+
+    def score(self, path: str, progress=None) -> DetectionResult:
+        # progress is accepted for interface parity; this backend has no per-frame callback yet.
+        try:
+            result = model_v1_rotation_aware.predict(path)
+        except ValueError as e:
+            raise UnprocessableMediaError(
+                "This video could not be analyzed -- it may be too short, "
+                "corrupted, or in an unsupported format."
+            ) from e
+
+        verdict = _band_verdict(result.probability, model_v1_common.THRESHOLD)
+
+        return DetectionResult(
+            verdict=verdict,
+            confidence=result.probability,
+            model_used=self.metadata.name,
+            processing_time_ms=0.0,  # caller (video/detector.py) fills in the real elapsed time
+            raw_scores={
+                "structure": result.probability,
+                "windows": len(result.frame_logits),
+                "rotation_degrees": result.rotation_degrees,
+            },
+        )
+
+
 _BACKENDS: dict[str, type[VideoBackend]] = {
     "heuristic": HeuristicVideoBackend,
     "model_v1": VideoModelV1Backend,
+    "cnn_gru_v5": CnnGruV5Backend,
+    "model_v1_rotation_aware": VideoModelV1RotationAwareBackend,
     # Register Video Model v2 here once it exists, e.g.:
     # "model_v2": VideoModelV2Backend,
 }

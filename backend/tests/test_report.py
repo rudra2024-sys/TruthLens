@@ -5,7 +5,7 @@ import io
 import pytest
 from pypdf import PdfReader
 
-from tests.conftest import TEST_DATA
+from tests.conftest import TEST_DATA, wav_bytes
 
 
 def _pdf_text(content: bytes) -> str:
@@ -76,4 +76,13 @@ def test_report_shows_the_provenance_conflict_for_a_real_verdict_on_an_ai_declar
 
 def test_audio_report_builds(client, scan, auth):
     text = _report(client, auth, scan(auth, b"\x00" * 64, "a.wav", "audio/wav"))
-    assert "AASIST" in text
+    assert "Audio Spoof Probability" in text
+
+
+def test_audio_report_shows_provenance_container_facts_for_a_real_wav(client, scan, auth):
+    """Audio provenance (section added 2026-10-02) is C2PA + container facts only; confirms it renders without
+    the old 'not available for this media type' early-out, using a real decodable WAV (unlike the all-zero
+    stub above, which has no readable container)."""
+    text = _report(client, auth, scan(auth, wav_bytes(), "a.wav", "audio/wav"))
+    assert "Provenance" in text
+    assert "16000 Hz" in text and "1 channel(s)" in text

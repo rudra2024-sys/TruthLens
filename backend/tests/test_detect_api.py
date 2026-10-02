@@ -115,10 +115,14 @@ def test_provenance_for_a_plain_file_says_nothing_and_never_invents_evidence(cli
     assert body["ela"]["applicable"] is True and body["ela"]["heatmap"].startswith("data:image/jpeg;base64,")
 
 
-def test_provenance_not_available_for_audio(client, scan, auth):
+def test_provenance_available_for_audio_c2pa_only(client, scan, auth):
+    """Audio gets a C2PA-only provenance check (see provenance/service.py) - no EXIF/ELA/pixel-watermark
+    equivalent exists for audio in this codebase, but Content Credentials are media-agnostic."""
     uid = scan(auth, b"\x00" * 64, "a.wav", "audio/wav")
     body = client.get(f"/api/v1/detect/{uid}/provenance", headers=auth).json()
-    assert body["available"] is False and body["reason"]
+    assert body["available"] is True
+    assert body["metadata"] is None and body["ela"] is None and body["watermark"] is None
+    assert body["level"] == "none"
 
 
 # ---------------------------------------------------------------- explain endpoint plumbing (explainer stubbed)
@@ -141,6 +145,28 @@ def test_explain_endpoint_returns_data_uris_and_never_500s_when_unavailable(clie
                         lambda u, r: Explanation(available=False, media_type="image", reason="model missing"))
     off = client.get(f"/api/v1/detect/{uid}/explain", headers=auth)
     assert off.status_code == 200 and off.json()["available"] is False and off.json()["heatmap"] is None
+
+
+def test_explain_endpoint_serializes_audio_windows_and_spectrogram(client, scan, auth, monkeypatch):
+    from app.services.explain.audio_explainer import AudioExplanation, WindowExplanation
+    from app.services.explain.service import Explanation
+
+    uid = scan(auth)
+    aud = AudioExplanation(
+        windows=[WindowExplanation(order=0, start_s=0.0, end_s=4.0, probability=0.9),
+                 WindowExplanation(order=1, start_s=1.0, end_s=5.0, probability=0.2)],
+        mean_probability=0.55, threshold=0.5, windows_above_threshold=1, duration_s=5.0,
+        saliency_window_order=0, spectrogram_jpeg=jpeg_bytes(), saliency_jpeg=jpeg_bytes(),
+    )
+    monkeypatch.setattr("app.api.routes.detect.build_explanation",
+                        lambda u, r: Explanation(available=True, media_type="audio", method="stub", note="n", audio=aud))
+    body = client.get(f"/api/v1/detect/{uid}/explain", headers=auth).json()
+    assert body["available"] and len(body["windows"]) == 2
+    assert body["windows"][0] == {"order": 0, "start_s": 0.0, "end_s": 4.0, "probability": 0.9}
+    assert body["mean_probability"] == 0.55 and body["windows_above_threshold"] == 1
+    assert body["saliency_window_order"] == 0
+    assert body["spectrogram"].startswith("data:image/jpeg;base64,")
+    assert body["saliency"].startswith("data:image/jpeg;base64,")
 
 
 def test_explain_service_degrades_instead_of_raising_when_the_model_cannot_load(client, scan, auth, monkeypatch):

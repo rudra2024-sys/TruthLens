@@ -3,10 +3,14 @@
 import pytest
 
 from app.core.config import settings
-from app.services.audio.detector import _verdict as audio_verdict
+from app.services.audio.backend import _band_verdict as audio_band_verdict
 from app.services.image.detector import _verdict as image_verdict
 from app.services.video.backend import _band_verdict
 from app.services.video.model_v1 import common
+
+
+def audio_verdict(p):
+    return audio_band_verdict(p, settings.FAKE_THRESHOLD)
 
 
 def test_default_threshold_is_unchanged():

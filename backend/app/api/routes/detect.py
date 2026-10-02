@@ -8,6 +8,7 @@ from app.core.database import get_db
 from app.models.models import Upload, DetectionResult, User
 from app.schemas.schemas import (
     DetectionResultOut, ExplanationOut, FrameExplanationOut, JobOut, ProvenanceOut, ProvenanceSignalOut,
+    WindowExplanationOut,
 )
 from app.services.detection_errors import UnprocessableMediaError
 from app.services.image.detector import run_image_detection
@@ -95,8 +96,9 @@ async def get_explanation(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Explainability for a scanned file: Grad-CAM heatmap (image) or per-frame scores + face crops (video).
-    Read-only; recomputed on demand with the deployed models. Never changes a stored result."""
+    """Explainability for a scanned file: Grad-CAM heatmap (image), per-frame scores + face crops (video), or
+    per-window scores + a time-saliency curve over a spectrogram (audio). Read-only; recomputed on demand with
+    the deployed models. Never changes a stored result."""
     r = await db.execute(select(Upload).where(Upload.upload_id == upload_id))
     upload = r.scalar_one_or_none()
     if not upload or upload.user_id != current_user.user_id:
@@ -136,6 +138,19 @@ async def get_explanation(
         out.threshold = v.threshold
         out.frames_above_threshold = v.frames_above_threshold
         out.duration_s = v.duration_s
+    if ex.audio is not None:
+        a = ex.audio
+        out.windows = [
+            WindowExplanationOut(order=w.order, start_s=w.start_s, end_s=w.end_s, probability=w.probability)
+            for w in a.windows
+        ]
+        out.mean_probability = a.mean_probability
+        out.threshold = a.threshold
+        out.windows_above_threshold = a.windows_above_threshold
+        out.duration_s = a.duration_s
+        out.saliency_window_order = a.saliency_window_order
+        out.spectrogram = explain_core.data_uri(a.spectrogram_jpeg)
+        out.saliency = explain_core.data_uri(a.saliency_jpeg) if a.saliency_jpeg else None
     return out
 
 
@@ -146,7 +161,9 @@ async def get_provenance(
     current_user: User = Depends(get_current_user),
 ):
     """Provenance evidence for a scanned file: C2PA Content Credentials, embedded metadata (EXIF / generation
-    parameters / XMP) and an ELA visual aid. Supplementary and read-only - never changes the stored verdict."""
+    parameters / XMP), a generator-watermark check (image/video) and an ELA visual aid (image). Audio gets a
+    C2PA-only check - audio has no EXIF/ELA/pixel-watermark equivalent in this codebase yet. Supplementary and
+    read-only - never changes the stored verdict."""
     from dataclasses import asdict
 
     r = await db.execute(select(Upload).where(Upload.upload_id == upload_id))
@@ -170,6 +187,8 @@ async def get_provenance(
     if pv.metadata is not None:
         out.metadata = asdict(pv.metadata)
     out.container = pv.container
+    if pv.watermark is not None:
+        out.watermark = asdict(pv.watermark)
     if pv.ela is not None:
         ela = asdict(pv.ela)
         heat = ela.pop("heatmap_jpeg", None)

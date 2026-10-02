@@ -37,7 +37,7 @@ const yn = (v) => (v === true ? 'yes' : v === false ? 'no' : null)
 export default function ProvenancePanel({ uploadId, mediaType, className = '' }) {
   const [data, setData] = useState(null)
   const [open, setOpen] = useState(false)
-  const eligible = mediaType === 'image' || mediaType === 'video'
+  const eligible = mediaType === 'image' || mediaType === 'video' || mediaType === 'audio'
 
   useEffect(() => {
     if (!eligible || !uploadId) return undefined
@@ -132,6 +132,25 @@ export default function ProvenancePanel({ uploadId, mediaType, className = '' })
                 ['Resolution', data.container.width ? `${data.container.width} × ${data.container.height}` : null],
                 ['Frame rate', data.container.fps ? `${data.container.fps.toFixed(1)} fps` : null],
                 ['Encoder tag', data.container.encoder_tag],
+                ['Duration', data.container.duration_s ? `${data.container.duration_s.toFixed(1)}s` : null],
+                ['Sample rate', data.container.sample_rate ? `${data.container.sample_rate} Hz` : null],
+                ['Channels', data.container.channels],
+                ['Codec', data.container.codec],
+              ]}
+            />
+          )}
+          {data.watermark?.applicable && (
+            <Facts
+              rows={[
+                ['SD/SDXL watermark bit match', typeof data.watermark.bit_match === 'number'
+                  ? `${Math.round(data.watermark.bit_match * 48)}/48${data.watermark.present ? ' (exact match)' : ''}`
+                  : null],
+                ['SD/SDXL watermark best frame match', typeof data.watermark.best_bit_match === 'number'
+                  ? `${Math.round(data.watermark.best_bit_match * 48)}/48${data.watermark.present ? ' (exact match)' : ''}`
+                  : null],
+                ['Frames checked for watermark', typeof data.watermark.frames_checked === 'number'
+                  ? `${data.watermark.frames_matched} / ${data.watermark.frames_checked} matched`
+                  : null],
               ]}
             />
           )}

@@ -10,8 +10,9 @@ export const ACCEPTED_MIME_TYPES = [
   'image/jpeg', 'image/png', 'image/webp',
   'video/mp4', 'video/avi', 'video/quicktime', 'video/webm',
   'audio/wav', 'audio/mpeg', 'audio/flac', 'audio/x-wav', 'audio/mp3',
+  'audio/mp4', 'audio/x-m4a', 'audio/m4a',
 ]
 
 export const ACCEPTED_INPUT_ACCEPT = ACCEPTED_MIME_TYPES.join(',')
 
-export const ACCEPTED_FORMAT_CHIPS = ['JPG', 'PNG', 'WEBP', 'MP4', 'MOV', 'AVI', 'WEBM', 'WAV', 'MP3', 'FLAC']
+export const ACCEPTED_FORMAT_CHIPS = ['JPG', 'PNG', 'WEBP', 'MP4', 'MOV', 'AVI', 'WEBM', 'WAV', 'MP3', 'FLAC', 'M4A']

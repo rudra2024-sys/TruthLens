@@ -113,6 +113,13 @@ class FrameExplanationOut(BaseModel):
     heatmap: Optional[str] = None      # data: URI, only for the most suspicious frames
 
 
+class WindowExplanationOut(BaseModel):
+    order: int
+    start_s: float
+    end_s: float
+    probability: float                 # this window's own deepfake probability
+
+
 class ExplanationOut(BaseModel):
     upload_id: str
     media_type: str
@@ -134,6 +141,12 @@ class ExplanationOut(BaseModel):
     threshold: Optional[float] = None
     frames_above_threshold: Optional[int] = None
     duration_s: Optional[float] = None
+    # audio
+    windows: Optional[List[WindowExplanationOut]] = None
+    windows_above_threshold: Optional[int] = None
+    saliency_window_order: Optional[int] = None
+    spectrogram: Optional[str] = None   # data: URI (JPEG), the most suspicious window's spectrogram
+    saliency: Optional[str] = None      # data: URI (JPEG), saliency overlay on the spectrogram above
 
 
 class ProvenanceSignalOut(BaseModel):
@@ -157,6 +170,8 @@ class ProvenanceOut(BaseModel):
     metadata: Optional[dict] = None
     container: Optional[dict] = None
     ela: Optional[dict] = None             # includes a data: URI heatmap when applicable
+    watermark: Optional[dict] = None       # fixed diffusers SD/SDXL pixel watermark check (images: single check;
+                                            # video: sampled-frame check, adds frames_checked/frames_matched/best_bit_match)
 
 
 class JobOut(BaseModel):

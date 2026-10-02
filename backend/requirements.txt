@@ -23,3 +23,4 @@ opencv-python-headless<5
 transformers
 open_clip_torch
 c2pa-python
+PyWavelets

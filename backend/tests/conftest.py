@@ -91,6 +91,23 @@ def jpeg_bytes(color=(10, 80, 200), size=(64, 64)) -> bytes:
     return buf.getvalue()
 
 
+def wav_bytes(seconds=2.0, sr=16000) -> bytes:
+    """A real, decodable mono WAV (unlike a handful of zero bytes) - needed for anything that actually reads
+    the audio container (provenance's duration/sample-rate probe, the real explainer)."""
+    import numpy as np
+    import wave
+
+    buf = io.BytesIO()
+    t = np.linspace(0, seconds, int(sr * seconds), endpoint=False)
+    samples = (0.2 * np.sin(2 * np.pi * 220 * t) * 32767).astype(np.int16)
+    with wave.open(buf, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(sr)
+        w.writeframes(samples.tobytes())
+    return buf.getvalue()
+
+
 @pytest.fixture()
 def upload(client):
     """upload(headers, data, name, content_type) -> upload_id."""

@@ -192,13 +192,38 @@ instead of a bare crash — keep this when touching `main.py`.
     to +0.06). Frame pooling is not the cause: max and top-4-mean pooling were tried and did no
     better (pairwise AUC 0.60 vs 0.64 for mean) and flagged all 5 real videos FAKE. Same class
     of problem as the image portrait-app / ChatGPT gaps: no training source (FF++, Celeb-DF,
-    DFDC, WildDeepfake) contains these generators or the vertical format.
-  - **CNN+BiGRU temporal head experiments (Colab, not deployed)**: a full-dataset head hit val
-    AUC 0.89 in-distribution but 0.44 on the ground-truth videos; v3 (adds WildDeepfake,
-    checkpoint selected by real-world AUC) reached 0.72 vs 0.64 for the deployed CNN, but on
-    10 videos with poor calibration — not enough evidence to swap. Production is unchanged.
-    Real fix would be sourcing fake clips from consumer face-swap apps as a new training
-    source; needs explicit approval per §8 rule 1.
+    DFDC, WildDeepfake) contains these generators or the vertical format. **Partial root cause
+    found for one of the two clips, 2026-10-02**: `fake video 4.mp4` (480x848, Magic Hour) finds
+    a Haar face in 0 of its 16 sampled frames — the frame content is encoded rotated 90° from
+    upright (no rotation metadata in the container to auto-correct; confirmed by hand), so the
+    face detector itself never gets a chance to run on a recognizable face, independent of
+    whatever the model would have scored it. See section 19 for the opt-in fix and its measured
+    (small, band-swallowed) effect. The other clip's cause is still unknown.
+  - **CNN+BiGRU temporal head experiments (Colab, not the production default)**: a full-dataset
+    head hit val AUC 0.89 in-distribution but 0.44 on the ground-truth videos; v3 (adds
+    WildDeepfake, checkpoint selected by real-world AUC) reached 0.72 vs 0.64 for the deployed
+    CNN, but on 10 videos with poor calibration — not enough evidence to swap. **v5** (2026-10-01,
+    checkpoint `backend/checkpoints/video/cnn_gru_v5_head.pt`, gitignored; adds RTFS-10k, drops
+    the full-dataset pranabkc source down to a 30% sampling fraction, selects by mean of
+    real-world/WildDeepfake-held-out/RTFS-held-out AUC): indist AUC 0.87, WildDeepfake held-out
+    0.79, RTFS held-out 0.98, self-reported real-world AUC 0.76 on the same 10 local videos —
+    **but that real-world number is circular**, since checkpoint_selection explicitly used those
+    same 10 videos to pick the epoch, and the underlying per-video probabilities are degenerate:
+    9 of 10 videos score within ~0.06 of 0.0 regardless of true label (re-verified 2026-10-01 via
+    `eval/video_head_experiments/eval_cnn_rnn.py` pointed at this checkpoint, and again through
+    the live `CnnGruV5Backend` wiring — both reproduce the exact same numbers), with the AUC
+    propped up almost entirely by one fake video scoring 0.99. At the deployed 0.525 threshold
+    this backend catches only 1 of 5 real-world fakes. Wired in as an **opt-in, non-default**
+    backend (`VIDEO_MODEL_BACKEND=cnn_gru_v5`, see `app/services/video/cnn_gru_v5.py` and
+    `CnnGruV5Backend` in `app/services/video/backend.py`) at the user's explicit request, for
+    continued evaluation only — `metadata.validated=False` guards against it silently becoming
+    the default. Tests: `backend/tests/test_video_cnn_gru_v5.py`. Production default is
+    unchanged (still `VideoModelV1Backend`, verified after wiring this in). Root cause is
+    presumably the same training-data gap as the deployed CNN's Akool/Magic Hour blind spot
+    above — none of v5's three sources (pranabkc cropped-faces, WildDeepfake subset, RTFS-10k)
+    resemble real consumer face-swap app footage. Real fix would be sourcing fake clips from
+    consumer face-swap apps as a new training source, and re-selecting the checkpoint on a
+    real-world set that is NOT also used for selection; needs explicit approval per §8 rule 1.
 
 ### Pretrained (not trained by this team, but real trained DNNs)
 - **Audio — AASIST** (Jung et al., ICASSP 2022), pretrained on ASVspoof2019-LA, ONNX weights
@@ -284,9 +309,10 @@ Only touch it for a concrete, reproducible bug.
 | `IMAGE_MODEL_DEVICE` | `pipelines/image/model.py` | `auto` (cuda if available, else cpu) | `cpu`/`cuda` |
 | `CLIP_MODEL_CHECKPOINT` | `pipelines/image_clip/model.py` | `models/checkpoints/image_clip/clip_head_best.pth` | docker-compose points this at `clip_head_round3_portrait_app.pth` as of 2026-09-16; override with an absolute path when running outside Docker |
 | `CLIP_MODEL_DEVICE` | `pipelines/image_clip/model.py` | `auto` (cuda if available, else cpu) | `cpu`/`cuda` |
-| `VIDEO_MODEL_BACKEND` | `services/video/backend.py` | `model_v1` | `heuristic` to fall back to the old byte-entropy heuristic |
+| `VIDEO_MODEL_BACKEND` | `services/video/backend.py` | `model_v1` | `heuristic` for the old byte-entropy heuristic, or `cnn_gru_v5` for the experimental BiGRU head (§3 — opt-in only, known-weak on real-world footage, not for production use) |
 | `VIDEO_MODEL_V1_CHECKPOINT` | `services/video/model_v1/common.py` | `backend/checkpoints/video/epoch_11_model_only.pt` | absolute path recommended when running outside Docker |
 | `VIDEO_MODEL_V1_DEVICE` | `services/video/model_v1/common.py` | `auto` (cuda if available, else cpu) | `cpu`/`cuda` |
+| `VIDEO_MODEL_CNN_GRU_V5_CHECKPOINT` | `services/video/cnn_gru_v5.py` | `backend/checkpoints/video/cnn_gru_v5_head.pt` | only relevant when `VIDEO_MODEL_BACKEND=cnn_gru_v5` |
 | `MODEL_SERVICE_URL` | `services/models/model_client.py` | `http://models:8001` | only relevant if the `models/` microservice is actually deployed as a docker-compose service, which it currently is not |
 | `AUTH_SECRET_KEY` | `core/security.py` | insecure dev default | **must** override for any real deployment |
 | `DETECTION_JOB_CONCURRENCY` | `services/jobs.py` | `1` | max background detection jobs running at once (inference is CPU-bound; the rest wait in `queued`) |
@@ -461,21 +487,46 @@ score** (fusing provenance into the verdict would be a behaviour change needing 
   returned), AI generation parameters (PNG `prompt`/`seed`/`parameters`/ComfyUI workflow, A1111-style
   Steps/Sampler/CFG layout), XMP AI source type. **ELA** for JPEG only, as a labelled visual aid, never a score.
   Video: C2PA + container facts + encoder tag.
+- **Fixed SD/SDXL invisible watermark** (`provenance/watermark.py`, added 2026-09-27; extended to sampled video
+  frames 2026-10-02, see section 18): diffusers embeds a
+  fixed 48-bit message in every Stable Diffusion / SDXL image by default (`ShieldMnt/invisible-watermark`'s "dwtDct"
+  method - a Haar-DWT coefficient trick, not an actual DCT despite the name). Rather than depending on that package
+  (its `opencv-python` dependency would collide with this repo's `opencv-python-headless` and risks breaking the
+  Docker build), the decode-only path is reimplemented locally with `PyWavelets` (now in `requirements.txt`) plus the
+  `cv2`/`numpy` already present. **Verified bit-for-bit identical to the real library** in a throwaway venv before
+  being wired in (exact match on both a real-encoder-produced image and on 4 sizes of random/unwatermarked images,
+  0 false positives across 30 random-image trials) - the one subtlety that took two passes to match exactly: the
+  library's bit threshold is `avg*255 > 127` (~0.498), not `avg > 0.5`, which only shows up on tie-vote blocks
+  (i.e. only visible on unwatermarked/near-random content, never on a real watermark's strongly-biased blocks).
+  `present` requires an exact 48/48 match (negligible chance of a coincidental hit on an unrelated image); the raw
+  `bit_match` fraction is also always reported for transparency. Like everything else here, a **miss proves nothing**:
+  many front-ends (AUTOMATIC1111, ComfyUI, most hosted APIs) disable the watermarker, and it does not survive
+  resizing, cropping or noticeable recompression (confirmed: gone after a plain resize or JPEG q90 re-save in
+  testing) - and unlike a C2PA signature, the fixed pattern is public, so it is theoretically forgeable onto a real
+  photo, worded that way in the signal's own detail text. Feeds `_assess()` exactly like a metadata AI declaration
+  (same `declared_ai` level / conflict-note path) since a match is comparably strong direct evidence. Not yet run
+  through `eval/provenance_study.py`'s 6,532-image harness (see below) - no measured real-world hit-rate yet, unlike
+  C2PA/ELA.
 - **Wording rules (rule 5):** absent metadata "says nothing either way"; present metadata "can be edited or forged".
   A stripped/re-saved file simply shows nothing — provenance can be removed, so it can add evidence but never clear a file.
-- **Conflict note:** when the models say REAL/UNCERTAIN but the file declares itself AI-generated, API + UI + PDF
-  say so explicitly (the ChatGPT "everyday" blind-spot images: models 0/8, all 8 carry OpenAI C2PA credentials).
+- **Conflict note:** when the models say REAL/UNCERTAIN but the file declares itself AI-generated (via metadata or the
+  watermark), API + UI + PDF say so explicitly (the ChatGPT "everyday" blind-spot images: models 0/8, all 8 carry
+  OpenAI C2PA credentials).
 - **Surfaces:** `GET /api/v1/detect/{upload_id}/provenance` (auth + owner check), "Provenance & Metadata" PDF section
-  (best-effort), `frontend/src/components/ProvenancePanel.jsx` (auto-fetched, silent on failure) in `ReportDetail.jsx`
-  and `UploadFlow.jsx`. Verified end to end in a real browser. Tests: `backend/test_provenance.py`
-  (17 checks incl. tamper/strip/EXIF/garbage), study: `python -m eval.provenance_study` →
-  `backend/eval/results/provenance_study.md`.
-- **Measured limits (6,532 eval images):** AI declarations exist on only 0.4% of AI images overall — benchmark datasets
-  are re-encoded and stripped — but on 9 of the 1,026 AI images the models miss, and all 8 ChatGPT + 1 portrait-app
-  blind-spot images. So it helps on fresh, unmodified downloads from generators that embed credentials, not on
-  scraped/re-uploaded data. ELA separates real/fake with AUC 0.53-0.75 on most sources but **0.995 on DeepDetect**:
-  a JPEG-compression-history shortcut in that dataset, which the ML models may be exploiting too (consistent with,
-  not proof of, their collapse on unseen generators).
+  (best-effort - the watermark signal renders through the same generic signal loop as C2PA/metadata, no separate PDF
+  code needed), `frontend/src/components/ProvenancePanel.jsx` (auto-fetched, silent on failure) in `ReportDetail.jsx`
+  and `UploadFlow.jsx`. Verified end to end (build_provenance -> signals -> PDF-equivalent output) for a real
+  watermarked test image, including the REAL-verdict conflict note. Tests: `backend/tests/test_provenance.py`
+  (17 checks incl. tamper/strip/EXIF/garbage) and `backend/tests/test_watermark.py` (7 checks incl. exact-match
+  detection, 0 false positives on random images, JPEG-recompression fragility, bad/missing files, and that a
+  watermark match feeds the same assessment path as a metadata declaration), study: `python -m eval.provenance_study`
+  → `backend/eval/results/provenance_study.md` (C2PA/EXIF/ELA only so far, not yet extended to the watermark check).
+- **Measured limits (6,532 eval images, C2PA/EXIF/ELA only):** AI declarations exist on only 0.4% of AI images overall
+  — benchmark datasets are re-encoded and stripped — but on 9 of the 1,026 AI images the models miss, and all 8
+  ChatGPT + 1 portrait-app blind-spot images. So it helps on fresh, unmodified downloads from generators that embed
+  credentials, not on scraped/re-uploaded data. ELA separates real/fake with AUC 0.53-0.75 on most sources but
+  **0.995 on DeepDetect**: a JPEG-compression-history shortcut in that dataset, which the ML models may be exploiting
+  too (consistent with, not proof of, their collapse on unseen generators).
 
 
 ---
@@ -619,3 +670,101 @@ sharing the same Drive cache folder.
   identical (5,666 train / 999 val identities, fingerprint `1546901497 1575160195`) across the accounts used this
   session — no leakage, cache reuse is safe.
 - Tests: `backend/tests/test_v5_cache_fix.py` (11, incl. the leakage-detection counter above).
+
+---
+
+## 18. Video watermark + audio explainability/provenance — added 2026-10-02
+
+Three additive extensions of sections 11/12, same read-only/supplementary rules as everything else in those
+sections (no model, weight, threshold or stored result is touched). Covers the gaps those sections previously
+called out explicitly: the SD/SDXL watermark check was images-only, and audio had no explainability or
+provenance at all.
+
+- **SD/SDXL watermark, extended to video** (`provenance/watermark.py::detect_sd_watermark_video`): samples up
+  to 8 evenly-spaced frames from the video and runs the exact same per-frame decode used for images on each one.
+  `present` is True if *any* sampled frame matches exactly (re-encoding can destroy the watermark on some frames
+  and not others), and the result reports `frames_checked` / `frames_matched` / `best_bit_match` alongside the
+  single best-matching frame's decoded hex, same shape as the image case plus these three fields. Wired into
+  `provenance/service.py`'s video branch exactly like the image case (`_video_watermark_signals`, same "ai"/
+  "strong" signal kind so it feeds `_assess()` and the REAL-verdict conflict note identically). PDF/API/frontend
+  (`ProvenancePanel.jsx`) render through the existing generic watermark fields, extended to show the frame counts
+  when present. Tests: `backend/tests/test_watermark.py` (added 5, using an FFV1-lossless-encoded AVI so the
+  watermark's bits survive the round trip exactly — confirmed byte-identical before being used in tests; MJPG/
+  mp4v/etc. all re-encode lossily and would destroy it, same fragility documented in section 12).
+- **Audio explainability** (`backend/app/services/explain/audio_explainer.py`): Audio Model v1 (wav2vec2-base)
+  has no single late 2D conv feature map the way ConvNeXt/EfficientNet do, so Grad-CAM's own technique doesn't
+  apply here — the substitute is a plain **input-gradient saliency curve over time** (Simonyan et al. 2013):
+  gradient of the deepfake probability w.r.t. the raw waveform, pooled into 80 time bins, rendered as a
+  colour overlay on a log-magnitude spectrogram (computed with `numpy.fft` only, no new dependency) of the single
+  most suspicious scored window. Also surfaces each window's own deepfake probability + its position in the
+  clip (the verdict is their mean, same convention as video's per-frame mean). Reuses the exact cached production
+  model (`audio/model_v1/optimized._get_model_and_device`) and the exact windowing (`optimized._build_windows`),
+  so the numbers shown match the verdict exactly (regression-tested, see below) — same "pin explanation to
+  production" principle as sections 11's image/video explainers. Fails fast with `available=False` (no model
+  load attempted) when `AUDIO_MODEL_BACKEND` isn't `model_v1`, or when the Audio Model v1 checkpoint file isn't
+  present — the latter matters because building the model otherwise downloads the wav2vec2-base backbone from
+  the Hugging Face Hub *before* checking our own checkpoint, which would silently add a network dependency to
+  the CI test suite (which has no checkpoints at all) if not guarded. Surfaces: `GET /api/v1/detect/{id}/explain`
+  (extended `ExplanationOut` with `windows`/`windows_above_threshold`/`saliency_window_order`/`spectrogram`/
+  `saliency`), the PDF's existing "Explainability" section (window table + spectrogram/saliency image pair),
+  `frontend/src/components/ExplanationPanel.jsx`'s new `AudioExplanation` component (same per-item bar-chart +
+  heatmap-legend pattern as the video one). Verified end to end over real HTTP (upload → detect → explain →
+  PDF) against the real checkpoint, not just unit-tested. Tests: `backend/tests/test_models.py` (3, `-m models`,
+  incl. exact-match regression against `optimized.predict`'s own numbers and a real-PDF-render check) +
+  `backend/tests/test_detect_api.py` (1, route serialization with a stubbed explainer).
+- **Audio provenance** (`provenance/service.py`): audio now gets a provenance check instead of an unconditional
+  "not available for this media type" — C2PA Content Credentials only (the C2PA SDK/reader was already
+  media-agnostic; audio just wasn't routed to it). No EXIF/ELA/pixel-watermark equivalent exists for audio in
+  this codebase, so metadata/ela/watermark are always `None` for audio results. Adds lightweight container facts
+  (duration/sample rate/channels/codec) via a container-only probe with PyAV (already a dependency for audio
+  decoding) — no full decode, unlike the real detector/explainer. Same `_assess()` / conflict-note path as
+  image/video, so an AI-declaring C2PA manifest on an audio file would flag identically. Tests:
+  `backend/tests/test_provenance.py` (added 3) + `backend/tests/test_detect_api.py` (updated the test that used
+  to assert audio provenance was unavailable) + `backend/tests/test_report.py` (added 1).
+- **Full suite**: 240 passed (`pytest` with no marker filter, checkpoints present locally) / 225 passed
+  (`-m "not models"`), both re-run after these changes with no regressions.
+
+---
+
+## 19. Video orientation-fallback backend (opt-in, not default) — added 2026-10-02
+
+`app/services/video/model_v1/{orientation,rotation_aware}.py`, registered in `backend.py` as
+`VideoModelV1RotationAwareBackend` (`VIDEO_MODEL_BACKEND=model_v1_rotation_aware`). Same "diagnose a specific
+miss, fix conservatively, measure honestly, don't flip the default without real evidence" pattern as the CNN+
+BiGRU v5 backend (sections 3/17/18) — this is a preprocessing change (same checkpoint, same architecture, same
+crop math), not a model change, so section 8 rule 1 doesn't block it, but it still isn't the default until
+measured on more than 10 videos.
+
+- **Diagnosis**: `fake video 4.mp4` (480x848, one of the two Akool/Magic Hour blind-spot clips in section 3)
+  finds a Haar face in 0 of its 16 sampled frames. Visually confirmed by dumping the decoded frames: the
+  content is encoded rotated 90° clockwise from upright (people lying sideways, the app's own watermark text
+  sideways too) — rotating each sampled frame 90° clockwise before Haar detection finds a face in 16/16 frames
+  instead of 0/16, confirmed with a saved boxed-frame image. `cv2`'s `CAP_PROP_ORIENTATION_META` reads 0 and
+  PyAV finds no `DISPLAYMATRIX` side-data on this file, so there is no rotation flag to read and apply
+  automatically — the pixels are just stored sideways, apparently an export quirk of this app. This is a
+  distinct failure mode from the other documented video miss (`fake video 3.mp4`'s Haar cascade locking onto a
+  wall poster, section 11) — that one finds a (wrong) face and is deliberately NOT touched by this fallback.
+- **Fix** (`orientation.py::detect_clip_rotation`): tries 0/90/180/270° once per clip (not per frame — a video
+  doesn't change orientation mid-clip), and returns 0 immediately the moment the native orientation finds a
+  face in *any* of the 16 sampled frames. This means the fallback can only ever activate on a clip where every
+  single sampled frame fails to find a face at 0° — exactly the diagnosed failure mode, and the only case where
+  changing the crop carries no regression risk against today's production behaviour. Among 90/180/270 it picks
+  whichever finds a face in the most frames. `rotation_aware.py::predict()` mirrors `optimized.predict()`
+  exactly (same cached model, same `common.preprocess_frame`, same pooling/sigmoid/threshold) with the one
+  difference that every frame is rotated by the detected degrees first.
+- **Measured (10 local ground-truth videos, 2026-10-02)**: only `fake video 4.mp4` is touched at all (rotation
+  = 90°); all other 9 videos are bit-identical to `VideoModelV1Backend` (confirmed via
+  `pytest.approx(..., abs=1e-6)` in tests, not just eyeballed). That one video's raw probability moves from
+  0.4711 (wrong side of 0.5) to 0.5087 (right side of 0.5) — a real, correct-direction move — but the deployed
+  `_band_verdict`'s ±0.2 margin around the 0.525 threshold means **all 10 of these local videos land in
+  UNCERTAIN either way**, so the practical verdict on this one clip is unchanged in this specific small sample;
+  the fix is directionally real but not yet shown to flip an actual verdict. Honest framing, not oversold: this
+  needed the broader `backend/eval/` harness (RTFS / other sources with more vertical/rotated clips) to show a
+  verdict-level effect, which has not been run yet.
+- **Not investigated**: the other Akool blind-spot clip (`real video`/`fake video` pair at 464x832) is
+  untouched by this fix — its own `detect_clip_rotation` returns 0 (native orientation already finds *some*
+  face), so whatever its problem is, it isn't "no face found." Root cause still open.
+- Tests: `backend/tests/test_video_rotation_fallback.py` (12 — orientation-detection unit tests using a real
+  face image rotated by hand, no checkpoint needed; backend-registry wiring tests; and checkpoint-gated tests,
+  `-m models`-equivalent via file-existence skip matching `test_video_cnn_gru_v5.py`'s pattern, confirming
+  bit-identical output on unaffected clips and the measured move on the affected one).

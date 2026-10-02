@@ -12,6 +12,7 @@ import os
 from dataclasses import dataclass, field
 
 from app.models.models import DetectionResult, Upload
+from app.services.explain.audio_explainer import AudioExplanation, explain_audio
 from app.services.explain.image_explainer import ImageExplanation, explain_image
 from app.services.explain.video_explainer import VideoExplanation, explain_video
 
@@ -32,6 +33,7 @@ class Explanation:
     note: str | None = None
     image: ImageExplanation | None = None
     video: VideoExplanation | None = None
+    audio: AudioExplanation | None = None
     # image only: which sub-model produced the deployed (max) score
     convnext_fake_probability: float | None = None
     clip_fake_probability: float | None = None
@@ -91,17 +93,47 @@ def _explain_video(upload: Upload, result: DetectionResult) -> Explanation:
     )
 
 
+def _explain_audio(upload: Upload, result: DetectionResult) -> Explanation:
+    if os.getenv("AUDIO_MODEL_BACKEND", "model_v1") != "model_v1":
+        return _unavailable(
+            "audio", "Explanations are only available for the neural audio model (Audio Model v1)."
+        )
+    # Fail fast (before touching the model) when our fine-tuned checkpoint is absent, e.g. in CI, which has
+    # no checkpoints at all (gitignored) - building the model would otherwise try to fetch the wav2vec2-base
+    # backbone from the Hugging Face Hub first (common.AudioClassifier.__init__), a network dependency this
+    # explanation has no business introducing just to then fail on the missing checkpoint anyway.
+    from app.services.audio.model_v1 import common as audio_common
+
+    if not audio_common.resolve_checkpoint_path().is_file():
+        return _unavailable("audio", "Audio Model v1 checkpoint not found.")
+    aud = explain_audio(upload.storage_url)
+    note = (
+        "The verdict is the mean of the per-window deepfake probabilities below. wav2vec2 has no single "
+        "late conv feature map for Grad-CAM, so the heatmap instead shows a gradient-based saliency curve "
+        "over time (which moments the score is most sensitive to) for the single most suspicious window, "
+        "overlaid on that window's own spectrogram. This is an explanation of the model's behaviour, not "
+        "proof that a time segment was manipulated, and the model can be wrong."
+    )
+    return Explanation(
+        available=True, media_type="audio",
+        method="Per-window scores + input-gradient saliency (Audio Model v1, wav2vec2-base)", note=note,
+        audio=aud,
+    )
+
+
 def build_explanation(upload: Upload, result: DetectionResult) -> Explanation:
     media = upload.media_type
     path = upload.storage_url
-    if media == "audio":
-        return _unavailable("audio", "Explanations are not available for audio yet.")
-    if media not in ("image", "video"):
+    if media not in ("image", "video", "audio"):
         return _unavailable(media, "Explanations are not available for this media type.")
     if not path or not os.path.isfile(path):
         return _unavailable(media, "The uploaded file is no longer available on the server.")
     try:
-        return _explain_image(upload, result) if media == "image" else _explain_video(upload, result)
+        if media == "image":
+            return _explain_image(upload, result)
+        if media == "video":
+            return _explain_video(upload, result)
+        return _explain_audio(upload, result)
     except Exception:
         logger.exception("Explanation failed (upload_id=%s)", getattr(upload, "upload_id", "?"))
         return _unavailable(media, "The explanation could not be generated for this file.")

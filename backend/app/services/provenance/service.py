@@ -25,6 +25,12 @@ from app.models.models import DetectionResult, Upload
 from app.services.provenance.c2pa_reader import C2paInfo, read_c2pa
 from app.services.provenance.ela import ElaResult, error_level_analysis
 from app.services.provenance.metadata import MetadataInfo, read_metadata
+from app.services.provenance.watermark import (
+    VideoWatermarkResult,
+    WatermarkResult,
+    detect_sd_watermark,
+    detect_sd_watermark_video,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +66,7 @@ class Provenance:
     c2pa: C2paInfo | None = None
     metadata: MetadataInfo | None = None
     ela: ElaResult | None = None
+    watermark: WatermarkResult | VideoWatermarkResult | None = None
     container: dict | None = None
     caveat: str = CAVEAT
 
@@ -84,6 +91,33 @@ def _video_container(path: str) -> dict:
     except OSError:
         pass
     return out
+
+
+def _audio_container(path: str) -> dict:
+    """Container-level facts only (no full decode - that's the detector's job, not provenance's)."""
+    try:
+        import av
+
+        container = av.open(path)
+        try:
+            if not container.streams.audio:
+                return {}
+            stream = container.streams.audio[0]
+            duration_s = None
+            if stream.duration and stream.time_base:
+                duration_s = float(stream.duration * stream.time_base)
+            elif container.duration:
+                duration_s = float(container.duration) / 1_000_000
+            return {
+                "duration_s": duration_s,
+                "sample_rate": stream.sample_rate,
+                "channels": stream.channels,
+                "codec": stream.codec_context.name if stream.codec_context else None,
+            }
+        finally:
+            container.close()
+    except Exception:
+        return {}
 
 
 def _c2pa_signals(c: C2paInfo, s: list[Signal]) -> None:
@@ -148,18 +182,47 @@ def _metadata_signals(m: MetadataInfo, s: list[Signal]) -> None:
         s.append(Signal("info", "none", "Contains a GPS location", "Coordinates are not shown here."))
 
 
+def _watermark_signals(wm: WatermarkResult, s: list[Signal]) -> None:
+    if not wm.present:
+        return
+    s.append(Signal(
+        "ai", "strong", "Fixed Stable Diffusion / SDXL watermark detected in pixel data",
+        "The image's wavelet coefficients match the fixed 48-bit watermark diffusers embeds by default "
+        "(https://github.com/ShieldMnt/invisible-watermark), exactly. Unlike embedded metadata this cannot be "
+        "stripped by accident and survives ordinary saving, but a miss proves nothing (many front-ends disable "
+        "it, and it does not survive resizing, cropping or heavy recompression) - and because the pattern is "
+        "public, someone could deliberately paste it into a real photo, the same way EXIF can be forged.",
+    ))
+
+
+def _video_watermark_signals(wm: VideoWatermarkResult, s: list[Signal]) -> None:
+    if not wm.present:
+        return
+    s.append(Signal(
+        "ai", "strong", "Fixed Stable Diffusion / SDXL watermark detected in sampled video frames",
+        f"{wm.frames_matched} of {wm.frames_checked} sampled frames carry an exact match to diffusers' fixed "
+        "48-bit watermark (https://github.com/ShieldMnt/invisible-watermark) - consistent with this clip being "
+        "composed of, or re-encoding, SD/SDXL-generated frames. Unlike embedded metadata this cannot be "
+        "stripped by accident, but a miss proves nothing (many front-ends disable it, and re-encoding can "
+        "destroy it frame by frame) - and because the pattern is public, it is in principle forgeable onto "
+        "real footage.",
+    ))
+
+
 def _assess(signals: list[Signal], verdict: str | None) -> Assessment:
     ai = [x for x in signals if x.kind == "ai" and x.strength == "strong"]
     cam = [x for x in signals if x.kind == "capture"]
     if ai:
         note = None
         if verdict == "REAL":
-            note = ("The detection models judged this file REAL, but its own metadata declares it AI-generated. "
-                    "Detection models can miss generators they were not trained on; the embedded declaration is "
-                    "the stronger evidence here (unless the credentials were forged, see the trust note).")
+            note = ("The detection models judged this file REAL, but it carries strong direct evidence of AI "
+                    "generation (embedded metadata and/or a matched generator watermark). Detection models can "
+                    "miss generators they were not trained on, so this direct evidence is usually the stronger "
+                    "read here - though such evidence can in principle be added to a real file on purpose (see "
+                    "the trust/signal notes above for how much that applies here).")
         elif verdict == "UNCERTAIN":
-            note = "The detection models were undecided; the embedded declaration points to AI generation."
-        return Assessment("declared_ai", "The file's own metadata declares it AI-generated.", note)
+            note = "The detection models were undecided; the embedded evidence points to AI generation."
+        return Assessment("declared_ai", "This file carries direct evidence of AI generation (metadata and/or a watermark).", note)
     if cam:
         return Assessment("camera_metadata", "Camera capture metadata is present (weak evidence).", None)
     return Assessment("none", "No provenance metadata found - this says nothing either way.", None)
@@ -167,34 +230,45 @@ def _assess(signals: list[Signal], verdict: str | None) -> Assessment:
 
 def build_provenance(upload: Upload, result: DetectionResult | None = None) -> Provenance:
     media, path = upload.media_type, upload.storage_url
-    if media not in ("image", "video"):
+    if media not in ("image", "video", "audio"):
         return Provenance(False, media, reason="Provenance checks are not available for this media type.")
     if not path or not os.path.isfile(path):
         return Provenance(False, media, reason="The uploaded file is no longer available on the server.")
     try:
         c2pa_info = read_c2pa(path)
         signals: list[Signal] = []
-        meta = ela = container = None
+        meta = ela = container = watermark = None
         if media == "image":
             meta = read_metadata(path)
             ela = error_level_analysis(path)
+            watermark = detect_sd_watermark(path)
             _c2pa_signals(c2pa_info, signals)
             _metadata_signals(meta, signals)
-            if not c2pa_info.present and not meta.has_exif and not meta.ai_param_fields and not meta.xmp_declares_ai:
+            _watermark_signals(watermark, signals)
+            if (not c2pa_info.present and not meta.has_exif and not meta.ai_param_fields and not meta.xmp_declares_ai
+                    and not watermark.present):
                 signals.append(Signal("absent", "none", "No provenance metadata found",
-                                      "No EXIF, generation parameters or Content Credentials. Common after screenshots, "
-                                      "messaging apps and social-media re-uploads; it carries no information about "
-                                      "authenticity."))
-        else:
+                                      "No EXIF, generation parameters, Content Credentials or generator watermark. "
+                                      "Common after screenshots, messaging apps and social-media re-uploads; it "
+                                      "carries no information about authenticity."))
+        elif media == "video":
             container = _video_container(path)
+            watermark = detect_sd_watermark_video(path)
+            _c2pa_signals(c2pa_info, signals)
+            _video_watermark_signals(watermark, signals)
+            if not c2pa_info.present and not watermark.present:
+                signals.append(Signal("absent", "none", "No Content Credentials or generator watermark found",
+                                      "Most videos carry neither; this says nothing about authenticity."))
+        else:  # audio - no pixel-level signal applies (no EXIF/ELA/SD watermark for audio), C2PA only
+            container = _audio_container(path)
             _c2pa_signals(c2pa_info, signals)
             if not c2pa_info.present:
                 signals.append(Signal("absent", "none", "No Content Credentials found",
-                                      "Most videos carry none; this says nothing about authenticity."))
+                                      "Most audio files carry none; this says nothing about authenticity."))
         return Provenance(
             available=True, media_type=media, signals=signals,
             assessment=_assess(signals, getattr(result, "verdict", None)),
-            c2pa=c2pa_info, metadata=meta, ela=ela, container=container,
+            c2pa=c2pa_info, metadata=meta, ela=ela, watermark=watermark, container=container,
         )
     except Exception:
         logger.exception("Provenance failed (upload_id=%s)", getattr(upload, "upload_id", "?"))

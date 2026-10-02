@@ -18,6 +18,7 @@ pytestmark = pytest.mark.models
 IMAGE_CKPT = Path(os.getenv("IMAGE_MODEL_CHECKPOINT") or REPO / "models" / "checkpoints" / "image" / "convnext_tiny_diversified_v2.pth")
 CLIP_CKPT = Path(os.getenv("CLIP_MODEL_CHECKPOINT") or REPO / "models" / "checkpoints" / "image_clip" / "clip_head_round3_portrait_app.pth")
 VIDEO_CKPT = Path(os.getenv("VIDEO_MODEL_V1_CHECKPOINT") or BACKEND / "checkpoints" / "video" / "epoch_11_model_only.pt")
+AUDIO_CKPT = Path(os.getenv("AUDIO_MODEL_V1_CHECKPOINT") or BACKEND / "checkpoints" / "audio" / "wav2vec2_v9.pt")
 TOL = 1e-5
 
 
@@ -127,3 +128,68 @@ def test_progress_callback_exception_aborts_the_run():
 
     with pytest.raises(Stop):
         optimized.predict(path, str(VIDEO_CKPT), progress=cb)
+
+
+def _write_wav(path, seconds=6, sr=16000, freq=220.0, seed=0):
+    import numpy as np
+    import wave
+
+    rng = np.random.default_rng(seed)
+    t = np.linspace(0, seconds, int(sr * seconds), endpoint=False)
+    tone = 0.2 * np.sin(2 * np.pi * freq * t)
+    noise = 0.02 * rng.standard_normal(t.shape[0])
+    samples = ((tone + noise) * 32767).astype(np.int16)
+    with wave.open(str(path), "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(sr)
+        w.writeframes(samples.tobytes())
+
+
+def test_audio_explainer_reproduces_the_production_score(tmp_path):
+    if not AUDIO_CKPT.is_file():
+        pytest.skip("audio checkpoint not present")
+    from app.services.explain import audio_explainer
+    from app.services.audio.model_v1 import optimized
+
+    path = tmp_path / "sample.wav"
+    _write_wav(path)
+    ex = audio_explainer.explain_audio(str(path), str(AUDIO_CKPT))
+    ref = optimized.predict(str(path), str(AUDIO_CKPT))
+    assert len(ex.windows) == ref.windows_analyzed
+    assert abs(ex.mean_probability - ref.deepfake_probability_mean) < TOL
+    assert abs(ex.duration_s - ref.duration_s) < TOL
+    assert 0 <= ex.saliency_window_order < len(ex.windows)
+    assert len(ex.spectrogram_jpeg) > 0
+
+
+def test_audio_explainability_renders_in_the_pdf_report(client, scan, auth, tmp_path):
+    if not AUDIO_CKPT.is_file():
+        pytest.skip("audio checkpoint not present")
+    import io
+
+    from pypdf import PdfReader
+    from tests.conftest import wav_bytes
+
+    path = tmp_path / "a.wav"
+    path.write_bytes(wav_bytes(seconds=6.0))
+    uid = scan(auth, path.read_bytes(), "a.wav", "audio/wav")
+    r = client.get(f"/api/v1/report/{uid}", headers=auth)
+    assert r.status_code == 200
+    text = "\n".join(p.extract_text() or "" for p in PdfReader(io.BytesIO(r.content)).pages)
+    assert "Explainability" in text and "Windows as scored by the model" in text
+    assert "Spectrogram" in text
+
+
+def test_audio_window_timestamps_cover_the_clip_in_order(tmp_path):
+    if not AUDIO_CKPT.is_file():
+        pytest.skip("audio checkpoint not present")
+    from app.services.explain import audio_explainer
+
+    path = tmp_path / "sample.wav"
+    _write_wav(path, seconds=10)
+    ex = audio_explainer.explain_audio(str(path), str(AUDIO_CKPT))
+    starts = [w.start_s for w in ex.windows]
+    assert starts == sorted(starts)
+    assert all(w.end_s - w.start_s == pytest.approx(4.0) for w in ex.windows)
+    assert ex.windows[-1].end_s <= ex.duration_s + 1e-6

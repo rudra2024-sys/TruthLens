@@ -113,6 +113,25 @@ def _explainability_flowables(upload: Upload, result: DetectionResult, styles) -
             t = Table(row, colWidths=[5.4 * cm] * len(hot))
             out.append(KeepTogether([Spacer(1, 0.2 * cm),
                                      Paragraph("Most suspicious frames (Grad-CAM)", small), t]))
+    if ex.audio is not None:
+        a = ex.audio
+        out.append(Paragraph(
+            f"Mean deepfake probability {a.mean_probability * 100:.1f}% (decision threshold {a.threshold:.3f}); "
+            f"{a.windows_above_threshold} of {len(a.windows)} windows individually above the threshold.", small))
+        out.append(Spacer(1, 0.15 * cm))
+        rows = [[Paragraph(f"Window {w.order + 1} ({w.start_s:.1f}s-{w.end_s:.1f}s)", small) for w in a.windows],
+                [Paragraph(f"{w.probability * 100:.0f}% fake", small) for w in a.windows]]
+        t = Table(rows, colWidths=[16 * cm / max(len(a.windows), 1)] * len(a.windows))
+        t.setStyle(TableStyle([("ALIGN", (0, 0), (-1, -1), "CENTER")]))
+        out.append(KeepTogether([Paragraph("Windows as scored by the model", small), t]))
+        pair = Table(
+            [[_rl_image(a.spectrogram_jpeg, 8.0), _rl_image(a.saliency_jpeg, 8.0) if a.saliency_jpeg else ""],
+             [Paragraph(f"Spectrogram - window {a.saliency_window_order + 1}", small),
+              Paragraph("Time-saliency overlay (which moments drove the score)", small)]],
+            colWidths=[8.2 * cm, 8.2 * cm],
+        )
+        pair.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP")]))
+        out.append(KeepTogether([Spacer(1, 0.2 * cm), pair]))
     out.append(Spacer(1, 0.2 * cm))
     out.append(Paragraph(ex.note or "", small))
     return out
@@ -152,14 +171,38 @@ def _provenance_flowables(upload: Upload, result: DetectionResult, styles) -> li
 
     if pv.container:
         c = pv.container
-        bits = [f"{c.get('width')}x{c.get('height')} px"]
+        bits = []
+        if c.get("width"):
+            bits.append(f"{c['width']}x{c['height']} px")
         if c.get("fps"):
             bits.append(f"{c['fps']:.1f} fps")
         if c.get("duration_s"):
             bits.append(f"{c['duration_s']:.1f} s")
+        if c.get("sample_rate"):
+            bits.append(f"{c['sample_rate']} Hz")
+        if c.get("channels"):
+            bits.append(f"{c['channels']} channel(s)")
+        if c.get("codec"):
+            bits.append(f"codec: {c['codec']}")
         if c.get("encoder_tag"):
             bits.append(f"encoder tag: {c['encoder_tag']}")
-        out.append(Paragraph("Container: " + ", ".join(bits), small))
+        if bits:
+            out.append(Paragraph("Container: " + ", ".join(bits), small))
+
+    if pv.watermark is not None and pv.watermark.applicable:
+        wm = pv.watermark
+        verdict_txt = "exact match - watermark detected" if wm.present else "no match"
+        if hasattr(wm, "frames_checked"):  # VideoWatermarkResult: sampled-frame check
+            match_txt = f"{round(wm.best_bit_match * 48)}/48" if wm.best_bit_match is not None else "n/a"
+            frame_txt = f" ({wm.frames_matched}/{wm.frames_checked} sampled frames matched)"
+        else:  # WatermarkResult: single-image check
+            match_txt = f"{round(wm.bit_match * 48)}/48" if wm.bit_match is not None else "n/a"
+            frame_txt = ""
+        out.append(Paragraph(
+            f"SD/SDXL fixed watermark check: {match_txt} bits matched ({verdict_txt}){frame_txt}. "
+            "This checks for diffusers' default pixel watermark only; a non-match proves nothing (many "
+            "pipelines disable it, and it does not survive resizing, cropping or recompression).", small,
+        ))
 
     if pv.ela is not None and pv.ela.applicable and pv.ela.heatmap_jpeg:
         out += [Spacer(1, 0.2 * cm),
