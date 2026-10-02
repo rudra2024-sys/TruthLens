@@ -777,3 +777,41 @@ measured on more than 10 videos.
   face image rotated by hand, no checkpoint needed; backend-registry wiring tests; and checkpoint-gated tests,
   `-m models`-equivalent via file-existence skip matching `test_video_cnn_gru_v5.py`'s pattern, confirming
   bit-identical output on unaffected clips and the measured move on the affected one).
+
+---
+
+## 20. Video cross-cascade consensus backend (opt-in, not default; measured negative) — added 2026-10-02
+
+`app/services/video/model_v1/{consensus,consensus_aware}.py`, registered in `backend.py` as
+`VideoModelV1ConsensusBackend` (`VIDEO_MODEL_BACKEND=model_v1_consensus`). Same diagnose-fix-measure pattern as
+section 19, targeting the OTHER documented video face-detection miss. **Measured net negative at scale — not
+recommended, kept registered only as a documented, tested dead end**, per the "don't delete without flagging"
+rule (section 3) extended to an experimental backend that didn't pan out.
+
+- **Diagnosis**: section 11's "useful finding" noted the Haar cascade locks onto a wall poster on `fake video
+  3.mp4`. Dumping boxed frames (both the default cascade and a second independently-trained cascade,
+  `haarcascade_frontalface_alt2.xml`) confirmed the pattern precisely: on frames 2/4/8, the default cascade
+  fires on a wall poster and a wrist while alt2 finds *nothing at all* (no corroboration); on frames 13/14,
+  where default correctly finds the real face, alt2 independently finds a near-identical box (confirmed
+  visually with saved boxed-frame images). This looked like a clean signal: trust a detection only when a
+  second cascade corroborates it (IoU >= 0.3), else fall back to the existing center-square crop.
+- **Why this one isn't provably safe (unlike section 19)**: the rotation fallback only ever activates when
+  *every* sampled frame already fails natively, so it cannot regress a working clip by construction. This
+  fallback changes behaviour on any frame where the default cascade *alone* finds a face that alt2 happens not
+  to corroborate — which turns out to be common on frames the default cascade was already getting right, not
+  just on spurious ones. That risk was flagged before measuring, not discovered after.
+- **Measured (300 unseen RTFS face-swap videos, 2026-10-02, same manifest as section 19)**:
+  `eval/run_predictions_consensus.py` → `eval/results/video_rtfs_consensus/`. Accuracy 79.0% vs the deployed
+  backend's 79.3%, AUC 0.890 vs 0.895, fake recall 74.0% vs 74.7% (111 vs 112 true positives, 39 vs 38 false
+  negatives; real specificity unchanged at 84.0%). A small but real net regression, not a wash and not a win.
+  On the local 10 ground-truth videos the diagnosed clip (`fake video 3.mp4`) moves a tiny amount in the
+  correct direction (0.4843 -> 0.4878, three of sixteen frames affected) but, like section 19's fix, stays
+  inside the deployed ±0.2 uncertainty band either way.
+- **Conclusion**: the diagnosis was correct (the poster lock-on is real and this does stop it), but the fix
+  trades away more good single-cascade detections than it removes bad ones, net negative on a 300-video
+  sample. Do not promote this to default or combine it with the section 19 rotation backend. A better fix for
+  the false-positive case would need either a higher-precision single detector (not a second vote) or a
+  training-side fix (augmenting with poster/background hard negatives) — out of scope here (section 8 rule 1).
+- Tests: `backend/tests/test_video_consensus_fallback.py` (11 — IoU/corroboration unit tests using real face
+  images with pinned, hand-confirmed agree/disagree cases, no checkpoint needed; backend-registry wiring
+  tests; and checkpoint-gated tests confirming the diagnosed clip's frame logits actually change).

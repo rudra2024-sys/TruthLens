@@ -1,0 +1,2 @@
+system,n,n_real,n_fake,accuracy,balanced_accuracy,fake_recall,real_specificity,precision,f1,auc,ap,tp,tn,fp,fn
+video_cnn,300,150,150,0.79,0.79,0.74,0.84,0.8222222222222222,0.7789473684210526,0.8896444444444445,0.8784507105453504,111,126,24,39

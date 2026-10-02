@@ -33,6 +33,7 @@ from app.services.video import cnn_gru_v5
 from app.services.video.model_v1 import common as model_v1_common
 from app.services.video.model_v1 import optimized as model_v1_optimized
 from app.services.video.model_v1 import rotation_aware as model_v1_rotation_aware
+from app.services.video.model_v1 import consensus_aware as model_v1_consensus_aware
 
 
 @dataclass(frozen=True)
@@ -239,11 +240,56 @@ class VideoModelV1RotationAwareBackend:
         )
 
 
+class VideoModelV1ConsensusBackend:
+    """EXPERIMENTAL, opt-in only -- NOT the production default. Identical to VideoModelV1Backend except a
+    frame's face crop is only trusted when a second Haar cascade (alt2) corroborates it (IoU >= 0.3);
+    otherwise the frame falls back to the existing center-square crop -- see
+    app/services/video/model_v1/{consensus,consensus_aware}.py and CLAUDE.md section 20.
+
+    metadata.validated=False: targets a diagnosed false-positive (the default cascade locking onto a wall
+    poster on `fake video 3.mp4`, see CLAUDE.md section 11), but unlike the rotation fallback this is NOT
+    provably regression-free -- it can also downgrade a frame where the default cascade alone was already
+    correct and alt2 simply missed it. See CLAUDE.md section 20 for the measured net effect before
+    considering this for the default.
+    """
+
+    metadata = VideoModelMetadata(
+        name="TruthLens Video Model v1 (EfficientNet-B0, epoch 11) + cascade consensus",
+        architecture="EfficientNet-B0, 16-frame mean-logit pooling, cross-cascade face consensus",
+        checkpoint_path=str(model_v1_common.resolve_checkpoint_path()),
+        validated=False,
+    )
+
+    def score(self, path: str, progress=None) -> DetectionResult:
+        # progress is accepted for interface parity; this backend has no per-frame callback yet.
+        try:
+            result = model_v1_consensus_aware.predict(path)
+        except ValueError as e:
+            raise UnprocessableMediaError(
+                "This video could not be analyzed -- it may be too short, "
+                "corrupted, or in an unsupported format."
+            ) from e
+
+        verdict = _band_verdict(result.probability, model_v1_common.THRESHOLD)
+
+        return DetectionResult(
+            verdict=verdict,
+            confidence=result.probability,
+            model_used=self.metadata.name,
+            processing_time_ms=0.0,  # caller (video/detector.py) fills in the real elapsed time
+            raw_scores={
+                "structure": result.probability,
+                "windows": len(result.frame_logits),
+            },
+        )
+
+
 _BACKENDS: dict[str, type[VideoBackend]] = {
     "heuristic": HeuristicVideoBackend,
     "model_v1": VideoModelV1Backend,
     "cnn_gru_v5": CnnGruV5Backend,
     "model_v1_rotation_aware": VideoModelV1RotationAwareBackend,
+    "model_v1_consensus": VideoModelV1ConsensusBackend,
     # Register Video Model v2 here once it exists, e.g.:
     # "model_v2": VideoModelV2Backend,
 }
