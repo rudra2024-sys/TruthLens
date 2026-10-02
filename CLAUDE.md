@@ -757,10 +757,19 @@ measured on more than 10 videos.
   `pytest.approx(..., abs=1e-6)` in tests, not just eyeballed). That one video's raw probability moves from
   0.4711 (wrong side of 0.5) to 0.5087 (right side of 0.5) — a real, correct-direction move — but the deployed
   `_band_verdict`'s ±0.2 margin around the 0.525 threshold means **all 10 of these local videos land in
-  UNCERTAIN either way**, so the practical verdict on this one clip is unchanged in this specific small sample;
-  the fix is directionally real but not yet shown to flip an actual verdict. Honest framing, not oversold: this
-  needed the broader `backend/eval/` harness (RTFS / other sources with more vertical/rotated clips) to show a
-  verdict-level effect, which has not been run yet.
+  UNCERTAIN either way**, so the practical verdict on this one clip is unchanged in this specific small sample.
+- **Measured at scale (300 unseen RTFS face-swap videos, 2026-10-02, same files `eval/results/video`'s RTFS
+  numbers in section 10 are computed from)**: a clean **null result**. `eval/run_predictions_rotation_aware.py`
+  re-scored the identical manifest (`eval/data/manifest_video_rtfs.csv`) the deployed backend was already
+  measured on; `rotation_degrees` was `0` for all 300 videos — the fallback never activated once — so
+  `eval/results/video_rtfs_rotation_aware/summary.csv` is byte-identical to the deployed backend's
+  (`video_rtfs_baseline`): 79.3% acc, AUC 0.895 either way. **Conclusion**: the sideways-encoding failure mode
+  is specific to this one app's export quirk (or at least not present anywhere in RTFS's inswapper/uniface/
+  original clips), not a general property of face-swap or vertical-format video. The fix is real for the one
+  diagnosed local file and carries no regression risk elsewhere (confirmed at scale, not just on 10 videos),
+  but it is not a broad accuracy win and should not be described as one — scripts:
+  `eval/run_predictions_rotation_aware.py` (mirrors `run_predictions.py`, swaps in `rotation_aware.predict`),
+  reports in `eval/results/video_rtfs_{baseline,rotation_aware}/`.
 - **Not investigated**: the other Akool blind-spot clip (`real video`/`fake video` pair at 464x832) is
   untouched by this fix — its own `detect_clip_rotation` returns 0 (native orientation already finds *some*
   face), so whatever its problem is, it isn't "no face found." Root cause still open.
