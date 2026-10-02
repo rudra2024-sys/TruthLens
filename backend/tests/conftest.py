@@ -120,7 +120,7 @@ def upload(client):
 
 # ---- stub detectors: write real DB rows without loading any model ----------------------------------------------
 
-def make_stub(kind, verdict="FAKE", confidence=0.93, model_used=None):
+def make_stub(kind, verdict="FAKE", confidence=0.93, model_used=None, frames_with_face=None):
     from app.models.models import AudioAnalysis, DetectionResult, ImageAnalysis, VideoAnalysis
 
     async def _stub(upload, db):
@@ -132,7 +132,8 @@ def make_stub(kind, verdict="FAKE", confidence=0.93, model_used=None):
             db.add(ImageAnalysis(result_id=r.result_id, fake_probability=confidence, real_probability=1 - confidence,
                                  convnext_fake_probability=confidence * 0.9, clip_fake_probability=confidence))
         elif kind == "video":
-            db.add(VideoAnalysis(result_id=r.result_id, xception_score=confidence, frames_analyzed=16))
+            db.add(VideoAnalysis(result_id=r.result_id, xception_score=confidence, frames_analyzed=16,
+                                 frames_with_face=frames_with_face))
         else:
             db.add(AudioAnalysis(result_id=r.result_id, wav2vec_score=confidence, lcnn_score=0.1))
         await db.flush()
@@ -143,8 +144,9 @@ def make_stub(kind, verdict="FAKE", confidence=0.93, model_used=None):
 @pytest.fixture()
 def stub_detectors(monkeypatch):
     """Replace the three detectors with stubs; returns a setter to choose the verdict per kind."""
-    def _set(kind, verdict="FAKE", confidence=0.93, model_used=None):
-        monkeypatch.setattr(f"app.api.routes.detect.run_{kind}_detection", make_stub(kind, verdict, confidence, model_used))
+    def _set(kind, verdict="FAKE", confidence=0.93, model_used=None, frames_with_face=None):
+        monkeypatch.setattr(f"app.api.routes.detect.run_{kind}_detection",
+                            make_stub(kind, verdict, confidence, model_used, frames_with_face))
     for k in ("image", "video", "audio"):
         _set(k)
     return _set

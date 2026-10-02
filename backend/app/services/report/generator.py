@@ -423,6 +423,26 @@ def generate_pdf_report(upload: Upload, result: DetectionResult) -> str:
                         styles["Normal"],
                     )
                 )
+            if video_analysis.frames_with_face is not None and video_analysis.frames_analyzed:
+                elements.append(
+                    Paragraph(
+                        f"Frames With a Detected Face: {video_analysis.frames_with_face} / "
+                        f"{video_analysis.frames_analyzed}",
+                        styles["Normal"],
+                    )
+                )
+                if video_analysis.frames_with_face < video_analysis.frames_analyzed / 2:
+                    elements.append(
+                        Paragraph(
+                            "<font color='#d97706'><b>Low face-detection confidence:</b></font> the face "
+                            "detector found a usable face in fewer than half the sampled frames, so most "
+                            "frames were scored from a generic centre crop instead of a face close-up. "
+                            "Treat this verdict with extra caution -- the model saw less of what it was "
+                            "trained to look at than usual.",
+                            ParagraphStyle("lowface", parent=styles["Normal"], fontSize=9,
+                                           textColor=colors.HexColor("#92400e")),
+                        )
+                    )
         elif video_analysis.xception_score is not None:
             elements.append(
                 Paragraph(

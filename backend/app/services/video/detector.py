@@ -41,6 +41,7 @@ async def run_video_detection(upload: Upload, db: AsyncSession, progress=None) -
         xception_score=result.raw_scores.get("structure"),
         face_voice_sync=result.raw_scores.get("consistency"),
         frames_analyzed=result.raw_scores.get("windows"),
+        frames_with_face=result.raw_scores.get("frames_with_face"),
     ))
     await db.flush()
     return result_id

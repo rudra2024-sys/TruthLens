@@ -53,6 +53,28 @@ def test_video_v1_report_uses_the_correct_labels_not_the_old_heuristic_ones(clie
     assert "Structure Entropy" not in text and "Byte Windows" not in text
 
 
+def test_low_face_detection_rate_adds_a_caution_note(client, auth, upload, stub_detectors):
+    """Added 2026-10-03, CLAUDE.md section 21: fewer than half the sampled frames finding a face should
+    surface a caution, not be silently absorbed into the verdict."""
+    stub_detectors("video", verdict="UNCERTAIN", confidence=0.48,
+                   model_used="TruthLens Video Model v1 (EfficientNet-B0, epoch 11)", frames_with_face=3)
+    uid = upload(auth, b"\x00" * 64, "a.mp4", "video/mp4")
+    assert client.post(f"/api/v1/detect/{uid}", headers=auth).status_code == 201
+    text = _report(client, auth, uid)
+    assert "Frames With a Detected Face: 3 / 16" in text
+    assert "Low face-detection confidence" in text
+
+
+def test_high_face_detection_rate_has_no_caution_note(client, auth, upload, stub_detectors):
+    stub_detectors("video", verdict="UNCERTAIN", confidence=0.48,
+                   model_used="TruthLens Video Model v1 (EfficientNet-B0, epoch 11)", frames_with_face=15)
+    uid = upload(auth, b"\x00" * 64, "a.mp4", "video/mp4")
+    assert client.post(f"/api/v1/detect/{uid}", headers=auth).status_code == 201
+    text = _report(client, auth, uid)
+    assert "Frames With a Detected Face: 15 / 16" in text
+    assert "Low face-detection confidence" not in text
+
+
 def test_heuristic_video_report_keeps_its_own_labels(client, auth, upload, stub_detectors):
     stub_detectors("video", verdict="UNCERTAIN", confidence=0.5, model_used="Video forensic heuristics v1")
     uid = upload(auth, b"\x00" * 64, "a.mp4", "video/mp4")

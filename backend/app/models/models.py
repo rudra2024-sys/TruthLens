@@ -144,6 +144,7 @@ class VideoAnalysis(Base):
     xception_score:    Mapped[float] = mapped_column(Float)
     face_voice_sync:   Mapped[float] = mapped_column(Float, nullable=True)
     frames_analyzed:   Mapped[int]   = mapped_column(Integer)
+    frames_with_face:  Mapped[int]   = mapped_column(Integer, nullable=True)
     result: Mapped["DetectionResult"] = relationship("DetectionResult", back_populates="video_analysis")
 
 

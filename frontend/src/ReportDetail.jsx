@@ -24,6 +24,31 @@ import { stationTag } from './lib/stations'
  * audio DB columns (wav2vec_score/lcnn_score) are legacy names that the
  * active AASIST detector repurposes, not a wav2vec2/LCNN pipeline.
  */
+/**
+ * Low-confidence transparency note (added 2026-10-03, see CLAUDE.md section 21): when the face detector found
+ * a usable face in fewer than half of Video Model v1's 16 sampled frames, most frames were scored from a
+ * generic centre crop instead of a face close-up — the model saw less of what it was trained to look at.
+ * Shown next to the evidence rows, not folded into the verdict itself.
+ */
+function LowFaceConfidenceNote({ result }) {
+  const a = result.video_analysis
+  if (!a || a.frames_with_face == null || !a.frames_analyzed) return null
+  if (a.frames_with_face >= a.frames_analyzed / 2) return null
+  return (
+    <div role="note" className="flex gap-3 border border-verdictCaution/60 bg-verdictCaution/10 rounded-[4px] p-4 mb-4">
+      <AlertCircle size={18} strokeWidth={1.75} className="text-verdictCaution shrink-0 mt-[2px]" aria-hidden="true" />
+      <div>
+        <p className="text-[13px] font-medium text-bone mb-1">Low face-detection confidence</p>
+        <p className="text-[13px] text-bone-dim">
+          The face detector found a usable face in only {a.frames_with_face} of {a.frames_analyzed} sampled
+          frames. Most frames were scored from a generic centre crop instead of a face close-up — treat this
+          verdict with extra caution.
+        </p>
+      </div>
+    </div>
+  )
+}
+
 function EvidenceRows({ result }) {
   const rows = []
 
@@ -41,6 +66,7 @@ function EvidenceRows({ result }) {
     rows.push(['Video fake probability', `${(a.xception_score * 100).toFixed(1)}%`])
     if (a.face_voice_sync != null) rows.push(['Consistency score (heuristic)', `${(a.face_voice_sync * 100).toFixed(1)}%`])
     rows.push(['Frames analyzed', String(a.frames_analyzed)])
+    if (a.frames_with_face != null) rows.push(['Frames with a detected face', `${a.frames_with_face} / ${a.frames_analyzed}`])
   }
   if (result.audio_analysis) {
     const a = result.audio_analysis
@@ -195,6 +221,7 @@ export default function ReportDetail() {
                 </button>
                 <Disclosure open={logOpen} id="inspection-log-panel">
                   <div className="pt-4">
+                    <LowFaceConfidenceNote result={result} />
                     <EvidenceRows result={result} />
                   </div>
                 </Disclosure>

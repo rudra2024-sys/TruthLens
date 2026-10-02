@@ -61,6 +61,8 @@ class VideoModelV1Result:
     probability: float
     verdict: str
     frame_logits: list[float]
+    frames_with_face: int = 0  # of the 16 sampled frames, how many had an actual Haar face detection (not
+                                # the center-square fallback) -- a transparency signal, see CLAUDE.md section 21
     timings: dict[str, float] = field(default_factory=dict)
 
 
@@ -96,8 +98,12 @@ def predict(
         on_frame=(lambda k, n: _report(0.70 * k / n, f"Reading frames ({k}/{n})")) if progress else None,
     )
     processed = []
+    frames_with_face = 0
     for i, f in enumerate(frames):
-        processed.append(common.preprocess_frame(f, cascade))
+        proc, info = common.preprocess_frame_with_info(f, cascade)
+        processed.append(proc)
+        if info["face_bbox"] is not None:
+            frames_with_face += 1
         _report(0.70 + 0.20 * (i + 1) / len(frames), f"Finding faces ({i + 1}/{len(frames)})")
     batch = np.stack(processed, axis=0)
     tensor = torch.from_numpy(batch).contiguous().float().to(device)
@@ -126,6 +132,7 @@ def predict(
         probability=probability,
         verdict=verdict,
         frame_logits=frame_logits,
+        frames_with_face=frames_with_face,
         timings={
             "model_load_s": load_s,
             "preprocess_s": preprocess_s,

@@ -28,6 +28,8 @@ class VideoAnalysisOut(BaseModel):
     xception_score: float
     face_voice_sync: Optional[float] = None
     frames_analyzed: int
+    frames_with_face: Optional[int] = None  # of frames_analyzed, how many had an actual face detection
+                                             # (not the center-square fallback) -- see CLAUDE.md section 21
     class Config:
         from_attributes = True
 

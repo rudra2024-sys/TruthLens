@@ -193,3 +193,40 @@ def test_audio_window_timestamps_cover_the_clip_in_order(tmp_path):
     assert starts == sorted(starts)
     assert all(w.end_s - w.start_s == pytest.approx(4.0) for w in ex.windows)
     assert ex.windows[-1].end_s <= ex.duration_s + 1e-6
+
+
+def test_preprocess_frame_with_info_matches_preprocess_frame_exactly():
+    """preprocess_frame() was refactored 2026-10-03 to delegate to preprocess_frame_with_info() (CLAUDE.md
+    section 21) -- this pins that the refactor changed nothing about the existing function's output."""
+    import numpy as np
+    from app.services.video.model_v1 import common
+
+    cascade = common.get_face_cascade()
+    frame = np.random.default_rng(0).integers(0, 255, (300, 300, 3), dtype=np.uint8)
+    plain = common.preprocess_frame(frame, cascade)
+    with_info, info = common.preprocess_frame_with_info(frame, cascade)
+    assert np.array_equal(plain, with_info)
+    assert "face_bbox" in info and "crop_bounds" in info
+
+
+@pytest.mark.parametrize("path,expected_frames_with_face", [
+    (r"C:\fake photos\fake video 1.mp4", 16),
+    (r"C:\fake photos\fake video 4.mp4", 0),
+])
+def test_frames_with_face_matches_the_diagnosed_clips(path, expected_frames_with_face):
+    """Regression pin for the two clips diagnosed in CLAUDE.md sections 19/21: video 1 finds a face on every
+    sampled frame, video 4 (the sideways-encoded Akool/Magic Hour blind spot) finds none."""
+    if not VIDEO_CKPT.is_file() or not os.path.isfile(path):
+        pytest.skip("video checkpoint or sample video not present")
+    from app.services.video.model_v1 import optimized
+    r = optimized.predict(path, str(VIDEO_CKPT))
+    assert r.frames_with_face == expected_frames_with_face
+
+
+def test_video_v1_backend_surfaces_frames_with_face_in_raw_scores():
+    path = r"C:\fake photos\fake video 1.mp4"
+    if not VIDEO_CKPT.is_file() or not os.path.isfile(path):
+        pytest.skip("video checkpoint or sample video not present")
+    from app.services.video.backend import VideoModelV1Backend
+    result = VideoModelV1Backend().score(path)
+    assert result.raw_scores["frames_with_face"] == 16

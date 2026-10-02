@@ -270,6 +270,30 @@ def crop_face_or_center(frame_bgr: np.ndarray, cascade: cv2.CascadeClassifier) -
     return crop
 
 
+def preprocess_frame_with_info(
+    frame_bgr: np.ndarray, cascade: cv2.CascadeClassifier
+) -> tuple[np.ndarray, dict]:
+    """Same preprocessing as preprocess_frame (BGR frame -> (3, 224, 224) float32, ImageNet-normalized), but
+    also returns the face-detection info (face_bbox/crop_bounds) from crop_face_or_center_with_info, for
+    callers that want to know whether a face was actually found -- e.g. a low-confidence transparency signal
+    (CLAUDE.md section 21) -- without duplicating the crop/resize/normalize math. Added 2026-10-03 as a pure
+    addition: preprocess_frame() below is unchanged (now just this function with the info discarded), so
+    every existing caller's output is untouched.
+
+    Matches the original exactly: crop from the RGB-converted frame, then
+    PIL BILINEAR resize (not cv2.resize/INTER_LINEAR -- a different
+    algorithm with different pixel values), then /255.0 and normalize.
+    """
+    crop_rgb, info = crop_face_or_center_with_info(frame_bgr, cascade)
+    resized = Image.fromarray(crop_rgb).resize(
+        (IMAGE_SIZE, IMAGE_SIZE), Image.Resampling.BILINEAR
+    )
+    resized_rgb = np.asarray(resized, dtype=np.uint8)
+    normalized = resized_rgb.astype(np.float32) / 255.0
+    normalized = (normalized - IMAGENET_MEAN) / IMAGENET_STD
+    return np.transpose(normalized, (2, 0, 1)).copy(), info
+
+
 def preprocess_frame(frame_bgr: np.ndarray, cascade: cv2.CascadeClassifier) -> np.ndarray:
     """BGR frame -> (3, 224, 224) float32, ImageNet-normalized.
 
@@ -277,11 +301,5 @@ def preprocess_frame(frame_bgr: np.ndarray, cascade: cv2.CascadeClassifier) -> n
     PIL BILINEAR resize (not cv2.resize/INTER_LINEAR -- a different
     algorithm with different pixel values), then /255.0 and normalize.
     """
-    crop_rgb = crop_face_or_center(frame_bgr, cascade)
-    resized = Image.fromarray(crop_rgb).resize(
-        (IMAGE_SIZE, IMAGE_SIZE), Image.Resampling.BILINEAR
-    )
-    resized_rgb = np.asarray(resized, dtype=np.uint8)
-    normalized = resized_rgb.astype(np.float32) / 255.0
-    normalized = (normalized - IMAGENET_MEAN) / IMAGENET_STD
-    return np.transpose(normalized, (2, 0, 1)).copy()
+    processed, _info = preprocess_frame_with_info(frame_bgr, cascade)
+    return processed

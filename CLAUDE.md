@@ -815,3 +815,53 @@ rule (section 3) extended to an experimental backend that didn't pan out.
 - Tests: `backend/tests/test_video_consensus_fallback.py` (11 — IoU/corroboration unit tests using real face
   images with pinned, hand-confirmed agree/disagree cases, no checkpoint needed; backend-registry wiring
   tests; and checkpoint-gated tests confirming the diagnosed clip's frame logits actually change).
+
+---
+
+## 21. Low-face-detection transparency signal (production, additive) — added 2026-10-03
+
+Not an accuracy change (same model, same crop, same verdict) — a transparency one: `VideoModelV1Backend`
+(the deployed default) now also reports how many of the 16 sampled frames actually found a face versus fell
+back to the center-square crop, and surfaces a caution when that's low.
+
+- **`frames_with_face`**: added to `VideoModelV1Result` (`model_v1/optimized.py`) by switching its per-frame
+  loop from `common.preprocess_frame()` to a new `common.preprocess_frame_with_info()`, which does the exact
+  same crop/resize/normalize math (confirmed identical, see tests) but also returns the `face_bbox` info
+  `crop_face_or_center_with_info()` already computed internally and previously discarded. `preprocess_frame()`
+  itself is unchanged in behaviour — it's now a one-line wrapper around the new function — so every other
+  caller (video_explainer.py, baseline.py) is unaffected. Threaded through `VideoModelV1Backend.raw_scores`,
+  `VideoAnalysis.frames_with_face` (new nullable column, `database.py`'s light-migration list), and
+  `VideoAnalysisOut.frames_with_face` in the API.
+- **Surfaces**: a new line in the PDF's "Video Pipeline Breakdown" ("Frames With a Detected Face: N / 16"),
+  plus an amber caution paragraph when `frames_with_face < frames_analyzed / 2` ("most frames were scored
+  from a generic centre crop... treat this verdict with extra caution"). Same threshold and wording mirrored
+  in `ReportDetail.jsx`'s new `LowFaceConfidenceNote` component, shown above the evidence rows. Only wired for
+  the production `VideoModelV1Backend` — the experimental rotation/consensus/wide-pad backends (sections
+  19/20/22) don't surface this field, which is a deliberate scope limit, not an oversight.
+- Tests: `backend/tests/test_models.py` (3 — `preprocess_frame_with_info` output matches `preprocess_frame`
+  exactly; `frames_with_face` matches the two clips already diagnosed in section 19 (16/16 and 0/16); the
+  backend surfaces it in `raw_scores`) + `backend/tests/test_report.py` (2 — caution note appears/doesn't
+  appear at the right threshold).
+
+---
+
+## 22. Video wide face-crop padding backend (opt-in, not default) — added 2026-10-03
+
+`app/services/video/model_v1/{wide_pad,wide_pad_aware}.py`, registered in `backend.py` as
+`VideoModelV1WidePadBackend` (`VIDEO_MODEL_BACKEND=model_v1_wide_pad`). Third of three video-parsing
+experiments from the same session as sections 19/20 — unlike those two, this isn't a response to a diagnosed
+failure on a specific clip, it's a hypothesis: face-swap boundary artifacts often sit right at the jaw/
+hairline, near or outside the model's trained 20% crop padding (`common.FACE_PADDING_FRACTION`), so a wider
+crop (35%) might give the model more of the manipulated region to look at.
+
+- **Mechanism**: `wide_pad.crop_face_or_center_wide()` is the same crop geometry as
+  `common.crop_face_or_center_with_info()` (center-square fallback, empty-crop safety net) with the padding
+  fraction as a parameter instead of the hardcoded constant. Frames where no face is found are unaffected —
+  same center-square fallback either way, so this only changes behaviour on frames that already find a face
+  (unlike section 19's rotation fallback, and more like section 20's consensus check, this is NOT provably
+  regression-free by construction).
+- **Measured**: *(300-video RTFS measurement run alongside this commit; see the follow-up note in this section
+  for the result, added once `eval/run_predictions_wide_pad.py` finished)*.
+- Tests: `backend/tests/test_video_wide_pad.py` (7 — crop-size and fallback mechanism tests with mocked
+  cascades, no checkpoint needed; backend-registry wiring tests; checkpoint-gated tests confirming the wider
+  crop actually changes the model's input).

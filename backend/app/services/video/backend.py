@@ -34,6 +34,7 @@ from app.services.video.model_v1 import common as model_v1_common
 from app.services.video.model_v1 import optimized as model_v1_optimized
 from app.services.video.model_v1 import rotation_aware as model_v1_rotation_aware
 from app.services.video.model_v1 import consensus_aware as model_v1_consensus_aware
+from app.services.video.model_v1 import wide_pad_aware as model_v1_wide_pad_aware
 
 
 @dataclass(frozen=True)
@@ -143,6 +144,7 @@ class VideoModelV1Backend:
             raw_scores={
                 "structure": result.probability,
                 "windows": len(result.frame_logits),
+                "frames_with_face": result.frames_with_face,
             },
         )
 
@@ -284,12 +286,54 @@ class VideoModelV1ConsensusBackend:
         )
 
 
+class VideoModelV1WidePadBackend:
+    """EXPERIMENTAL, opt-in only -- NOT the production default. Identical to VideoModelV1Backend except a
+    detected face is cropped with 35% padding instead of the trained 20% -- see
+    app/services/video/model_v1/{wide_pad,wide_pad_aware}.py and CLAUDE.md section 22.
+
+    metadata.validated=False: a hypothesis (face-swap boundary artifacts near the crop edge might benefit from
+    more context), not a response to a diagnosed failure like sections 19/20. See CLAUDE.md section 22 for the
+    measured net effect before considering this for the default.
+    """
+
+    metadata = VideoModelMetadata(
+        name="TruthLens Video Model v1 (EfficientNet-B0, epoch 11) + wide face padding",
+        architecture="EfficientNet-B0, 16-frame mean-logit pooling, 35% face-crop padding",
+        checkpoint_path=str(model_v1_common.resolve_checkpoint_path()),
+        validated=False,
+    )
+
+    def score(self, path: str, progress=None) -> DetectionResult:
+        # progress is accepted for interface parity; this backend has no per-frame callback yet.
+        try:
+            result = model_v1_wide_pad_aware.predict(path)
+        except ValueError as e:
+            raise UnprocessableMediaError(
+                "This video could not be analyzed -- it may be too short, "
+                "corrupted, or in an unsupported format."
+            ) from e
+
+        verdict = _band_verdict(result.probability, model_v1_common.THRESHOLD)
+
+        return DetectionResult(
+            verdict=verdict,
+            confidence=result.probability,
+            model_used=self.metadata.name,
+            processing_time_ms=0.0,  # caller (video/detector.py) fills in the real elapsed time
+            raw_scores={
+                "structure": result.probability,
+                "windows": len(result.frame_logits),
+            },
+        )
+
+
 _BACKENDS: dict[str, type[VideoBackend]] = {
     "heuristic": HeuristicVideoBackend,
     "model_v1": VideoModelV1Backend,
     "cnn_gru_v5": CnnGruV5Backend,
     "model_v1_rotation_aware": VideoModelV1RotationAwareBackend,
     "model_v1_consensus": VideoModelV1ConsensusBackend,
+    "model_v1_wide_pad": VideoModelV1WidePadBackend,
     # Register Video Model v2 here once it exists, e.g.:
     # "model_v2": VideoModelV2Backend,
 }
