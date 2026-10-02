@@ -45,7 +45,7 @@ def main():
     lines = [
         "# Video Model v1 -- robustness under per-frame degradation (reduced settings, read-only measurement)",
         "",
-        "Not part of the deployed pipeline; see CLAUDE.md section 21. Each row perturbs all 16 sampled frames "
+        "Not part of the deployed pipeline; see CLAUDE.md section 23. Each row perturbs all 16 sampled frames "
         "of each video identically (same family/level) before the unmodified Haar-crop + model pipeline.",
         "",
         "| family | level | n | accuracy | balanced_acc | fake_recall | real_spec | auc |",

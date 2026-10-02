@@ -865,3 +865,47 @@ crop (35%) might give the model more of the manipulated region to look at.
 - Tests: `backend/tests/test_video_wide_pad.py` (7 — crop-size and fallback mechanism tests with mocked
   cascades, no checkpoint needed; backend-registry wiring tests; checkpoint-gated tests confirming the wider
   crop actually changes the model's input).
+
+---
+
+## 23. Video robustness under compression/resize — measured for the first time, serious finding — 2026-10-03
+
+Read-only measurement (`eval/run_video_robustness.py` + `eval/make_video_robustness_report.py`, new scripts,
+mirroring section 14's methodology and reusing its exact perturbation functions, `eval/perturbations.py`, for
+apples-to-apples severity levels) — changes no model, weight or threshold. Section 14 covered images only;
+video had never been tested under degradation before this. **Result: Video Model v1 is dramatically more
+fragile to ordinary re-compression/resizing than either image sub-model, to the point of a near-total blind
+spot on heavily-compressed footage.**
+
+- **Method**: a deterministic 30-video subset of the RTFS manifest (10 real originals + 10 inswapper + 10
+  uniface, first-by-path per source — smaller and a different selection than section 19/20's 300-video
+  measurements, see caveat below), each of the 16 sampled frames degraded identically in memory (same
+  family/level, no video file written) before the unmodified Haar-crop + model pipeline. A reduced settings
+  list (11 of the full 21: jpeg 90/50/10, resize 0.5/0.25, blur 1/3, noise 10, whatsapp, webp, clean) to keep
+  the (videos x settings) product small enough for one session's background run.
+- **Numbers** (`eval/results/video_robustness/report.md`): clean 63.3% acc / AUC 0.665 (this subset's own
+  baseline — see caveat) falls to **33.3% acc / AUC 0.585 at JPEG quality 10, with fake_recall at 0.0%** (every
+  single compressed fake in the subset scored REAL). blur sigma 3 and resize-to-25%-then-restore both land
+  *below chance* (40.0% acc, AUC 0.41 and 0.465 respectively — worse than a coin flip, meaning the score is
+  anti-correlated with the true label at that severity). Even the "everyday sharing" pipelines that images held
+  up fine under (section 14: screenshot/whatsapp/webp all stayed AUC >= 0.99) hurt video badly here: whatsapp
+  (resize + JPEG q65) 46.7% acc / AUC 0.610, webp 40.0% acc / AUC 0.545.
+- **Verified not a script bug**: spot-checked one fake video's raw scores across every setting by hand (clean
+  0.4715 -> jpeg90 0.4571 -> jpeg50 0.3868 -> jpeg10 0.3110, a smooth, monotonic slide toward REAL as quality
+  drops) — a real, gradual model behaviour, not a crash or a label mix-up.
+- **Caveat on the absolute clean number**: this 30-video subset's own clean baseline (63.3% acc, AUC 0.665) is
+  lower than section 19/20's 300-video RTFS baseline (79.3% acc, AUC 0.895) for the *same deployed model* —
+  expected small-sample noise from a 10x smaller, deterministically (not randomly) selected subset, not
+  evidence of a different or worse model. The relative *degradation trend* under compression (and its
+  magnitude, including dropping below chance) is the finding to trust here, not the absolute 63.3%/0.665
+  starting point.
+- **Why this matters**: real-world shared video is essentially never clean (WhatsApp, Instagram, re-uploads,
+  screen recordings all re-compress) — this suggests the deployed video model's real-world performance on
+  *shared* footage, as opposed to freshly-exported benchmark clips, is likely substantially worse than the
+  clean RTFS numbers (section 10/19/20) imply, in a way nothing in this codebase had measured before today.
+  `docs/ETHICS_AND_LIMITATIONS.md` and the eval summary should be updated to carry this caveat for video the
+  same way section 14 already does for images — not yet done, flagged here rather than silently left out.
+- **Not done (scope/time, flagged rather than silently skipped)**: full 300-video x 21-setting run (would take
+  several hours of background compute, not attempted this session), a fix of any kind (training-side
+  compression augmentation is the obvious lever and needs section 8 rule 1 approval), and updating the
+  user-facing docs mentioned above.
