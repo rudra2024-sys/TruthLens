@@ -1,0 +1,4 @@
+system,source,trained_on,n_real,n_fake,accuracy,fake_recall,real_specificity,auc
+video_cnn,rtfs_fake_inswapper,no,0,75,0.8,0.8,nan,nan
+video_cnn,rtfs_fake_uniface,no,0,75,0.68,0.68,nan,nan
+video_cnn,rtfs_real_originals,no,150,0,0.7866666666666666,nan,0.7866666666666666,nan

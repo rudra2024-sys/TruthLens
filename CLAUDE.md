@@ -860,8 +860,22 @@ crop (35%) might give the model more of the manipulated region to look at.
   same center-square fallback either way, so this only changes behaviour on frames that already find a face
   (unlike section 19's rotation fallback, and more like section 20's consensus check, this is NOT provably
   regression-free by construction).
-- **Measured**: *(300-video RTFS measurement run alongside this commit; see the follow-up note in this section
-  for the result, added once `eval/run_predictions_wide_pad.py` finished)*.
+- **Measured (300 unseen RTFS face-swap videos, 2026-10-03, same manifest as sections 19/20)**: another net
+  negative, same shape as section 20's consensus backend. `eval/run_predictions_wide_pad.py` ->
+  `eval/results/video_rtfs_wide_pad/`: accuracy 76.3% vs the deployed backend's 79.3%, AUC 0.849 vs 0.895. Real
+  specificity drops the most (84.0% -> 78.7%, 24 -> 32 false positives on genuine videos) — more of the wider
+  crop's extra context reads as suspicious on real footage than it helps catch fakes. Per-source split is mixed
+  rather than uniformly bad: inswapper fake recall actually improves (77.3% -> 80.0%) while uniface recall
+  drops (72.0% -> 68.0%) and real specificity falls across the board — the net is negative, but not because
+  every source got worse.
+- **Conclusion**: of the three preprocessing hypotheses tried this session (sections 19/20/22), only the
+  rotation fallback (section 19) is a clean, provably-safe win, and even that is narrow (one diagnosed clip,
+  null at RTFS scale). Both "trust the crop more" directions tried here — requiring cross-cascade agreement
+  (section 20) and giving the crop more surrounding context (this section) — make the deployed Haar+20%-padding
+  pipeline worse on this 300-video benchmark, not better. This is itself a useful, previously-unknown result:
+  the current crop geometry is closer to a local optimum for this model/benchmark than it looked going in, and
+  further gains in this specific direction (preprocessing geometry) are unlikely without retraining alongside
+  it — the robustness collapse in section 23 is the much larger lever found this session.
 - Tests: `backend/tests/test_video_wide_pad.py` (7 — crop-size and fallback mechanism tests with mocked
   cascades, no checkpoint needed; backend-registry wiring tests; checkpoint-gated tests confirming the wider
   crop actually changes the model's input).
