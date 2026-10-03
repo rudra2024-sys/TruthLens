@@ -33,6 +33,7 @@ _LIGHT_MIGRATIONS = [
     "ALTER TABLE audio_analysis ADD COLUMN duration_s FLOAT",
     "ALTER TABLE audio_analysis ADD COLUMN windows_analyzed INTEGER",
     "ALTER TABLE video_analysis ADD COLUMN frames_with_face INTEGER",
+    "ALTER TABLE detection_results ADD COLUMN calibrated_confidence FLOAT",
 ]
 
 

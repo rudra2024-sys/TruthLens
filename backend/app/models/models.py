@@ -67,6 +67,7 @@ class DetectionResult(Base):
     result_id:          Mapped[str]   = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     upload_id:          Mapped[str]   = mapped_column(String, ForeignKey("uploads.upload_id"))
     confidence_score:   Mapped[float] = mapped_column(Float)
+    calibrated_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     verdict:             Mapped[str]  = mapped_column(String)
     model_used:          Mapped[str]  = mapped_column(String, default="ensemble-v1")
     processing_time_ms:  Mapped[float] = mapped_column(Float, default=0)

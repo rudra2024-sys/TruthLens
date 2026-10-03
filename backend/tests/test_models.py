@@ -84,6 +84,30 @@ def test_ensemble_probability_is_the_max_of_the_two_models(client, auth, upload,
     assert body["model_used"] == "ConvNeXt-Tiny + CLIP ViT-B/16 (ensemble)"
 
 
+def test_real_image_detection_populates_calibrated_confidence(client, auth, upload, convnext, clip, monkeypatch):
+    """End to end: a real detection through the live API gets a calibrated_confidence alongside the raw
+    confidence_score, added 2026-10-03 (CLAUDE.md section 25) -- skips if eval/fit_calibration.py hasn't been
+    run (no app/core/calibration.json), same honesty pattern as the rest of this file's checkpoint skips."""
+    from app.services import calibration
+    calibration.clear_cache()
+    if calibration.calibrate(0.9, "image") is None:
+        pytest.skip("app/core/calibration.json not present (eval/fit_calibration.py not run)")
+
+    monkeypatch.setenv("IMAGE_MODEL_CHECKPOINT", str(IMAGE_CKPT))
+    monkeypatch.setenv("CLIP_MODEL_CHECKPOINT", str(CLIP_CKPT))
+    import app.services.image.detector as det
+    monkeypatch.setattr(det, "_image_pipeline", convnext)
+    monkeypatch.setattr(det, "_clip_pipeline", clip)
+    sample = _images("portrait_app", 1)[0]
+    uid = upload(auth, sample.read_bytes(), sample.name, "image/png")
+    body = client.post(f"/api/v1/detect/{uid}", headers=auth).json()
+
+    assert body["calibrated_confidence"] is not None
+    assert 0.0 <= body["calibrated_confidence"] <= 1.0
+    # calibrated_confidence must never replace confidence_score - both present, independently computed
+    assert "confidence_score" in body and body["confidence_score"] is not None
+
+
 @pytest.mark.parametrize("path", [r"C:\fake photos\fake video 3.mp4", r"C:\real photos\real video 1.mp4"])
 def test_video_explainer_reproduces_the_production_score(path):
     if not VIDEO_CKPT.is_file() or not os.path.isfile(path):

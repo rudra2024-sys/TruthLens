@@ -309,6 +309,17 @@ def generate_pdf_report(upload: Upload, result: DetectionResult) -> str:
         )
     )
 
+    if result.calibrated_confidence is not None:
+        small = ParagraphStyle("calib_small", parent=styles["Normal"], fontSize=8, textColor=colors.grey)
+        elements.append(
+            Paragraph(
+                f"Calibrated confidence: {result.calibrated_confidence * 100:.1f}% "
+                "(temperature-scaled against measured accuracy on held-out data; the raw score above is "
+                "the model's own unmodified output -- see CLAUDE.md section 25)",
+                small,
+            )
+        )
+
     elements.append(Spacer(1, 0.5 * cm))
 
     # ---------------------------------------------------------

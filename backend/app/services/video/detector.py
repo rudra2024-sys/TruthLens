@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.models import Upload, VideoAnalysis
 from app.models.models import DetectionResult as DetectionResultRow
 from app.services.video.backend import get_video_backend
+from app.services.calibration import calibrate
 
 
 async def run_video_detection(upload: Upload, db: AsyncSession, progress=None) -> str:
@@ -27,9 +28,14 @@ async def run_video_detection(upload: Upload, db: AsyncSession, progress=None) -
     elapsed_ms = (time.perf_counter() - start) * 1000
 
     result_id = str(uuid.uuid4())
+    # Post-hoc temperature-scaling calibration (additive, supplementary -- see app/services/calibration.py
+    # and CLAUDE.md section 25). Unlike image, video's confidence_score IS already the raw P(FAKE) directly
+    # (a pre-existing, documented quirk -- CLAUDE.md section 13), so no two-sided re-derivation is needed here.
+    calibrated_confidence = calibrate(result.confidence, "video")
     detection = DetectionResultRow(
         result_id=result_id, upload_id=upload.upload_id,
-        confidence_score=result.confidence, verdict=result.verdict,
+        confidence_score=result.confidence, calibrated_confidence=calibrated_confidence,
+        verdict=result.verdict,
         model_used=result.model_used,
         processing_time_ms=elapsed_ms,
     )

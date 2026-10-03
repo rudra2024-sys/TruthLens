@@ -176,6 +176,26 @@ def test_prod_nginx_sets_security_headers_and_long_proxy_timeouts():
         assert needle in text
 
 
+def test_prod_nginx_sets_a_content_security_policy():
+    """Added 2026-10-03: every directive here was derived from grepping the actual built bundle and src/ for
+    eval/Worker usage, external domains and data:/blob: URI needs - see the nginx.prod.conf comment and
+    CLAUDE.md section 25 for the full reasoning. This pins the policy string so it can't silently regress."""
+    text = (REPO / "frontend" / "nginx.prod.conf").read_text(encoding="utf-8")
+    assert "Content-Security-Policy" in text
+    for needle in (
+        "default-src 'self'",
+        "script-src 'self'",            # no unsafe-eval: the built bundle has zero eval()/new Function()
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+        "font-src 'self' https://fonts.gstatic.com",
+        "img-src 'self' data: blob:",
+        "media-src 'self' blob:",
+        "connect-src 'self'",
+        "object-src 'none'",
+        "frame-ancestors 'none'",
+    ):
+        assert needle in text, f"missing CSP directive: {needle}"
+
+
 def test_prod_nginx_rate_limits_upload_and_detect():
     """Added 2026-10-03: upload/detect trigger real model inference, so they get their own rate-limit zone
     separate from the lighter catch-all /api/ block, same as auth already had."""

@@ -174,7 +174,14 @@ export default function ReportDetail() {
                 <h2 className={`font-serif text-[32px] md:text-[36px] mb-2 ${info.textClass}`}>{info.label}</h2>
                 <p className="text-[14px] text-bone-dim">{info.caption}</p>
               </div>
-              <ConfidenceGauge value={result.confidence_score} accent={info.accent} size={128} />
+              <div className="flex flex-col items-center gap-2">
+                <ConfidenceGauge value={result.confidence_score} accent={info.accent} size={128} />
+                {result.calibrated_confidence != null && (
+                  <p className="tl-figure text-[11px] text-bone-faint" title="Temperature-scaled against measured accuracy — see CLAUDE.md section 25. Raw model output above is unchanged.">
+                    calibrated: {(result.calibrated_confidence * 100).toFixed(1)}%
+                  </p>
+                )}
+              </div>
             </div>
 
             {/* Specimen information */}

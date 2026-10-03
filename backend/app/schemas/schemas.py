@@ -75,6 +75,10 @@ class DetectionResultOut(BaseModel):
     result_id: str
     upload_id: str
     confidence_score: float
+    calibrated_confidence: Optional[float] = None  # post-hoc temperature-scaled P(FAKE)-derived confidence
+                                                     # (image/video only, see app/services/calibration.py and
+                                                     # CLAUDE.md section 25) -- supplementary, never replaces
+                                                     # confidence_score above
     verdict: str
     model_used: str
     processing_time_ms: float

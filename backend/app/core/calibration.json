@@ -1,0 +1,14 @@
+{
+  "image": {
+    "temperature": 4.4511,
+    "n": 6500,
+    "ece_before": 0.158,
+    "ece_after": 0.0556
+  },
+  "video": {
+    "temperature": 0.1155,
+    "n": 300,
+    "ece_before": 0.2543,
+    "ece_after": 0.0592
+  }
+}

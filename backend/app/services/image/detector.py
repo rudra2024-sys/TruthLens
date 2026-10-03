@@ -10,6 +10,7 @@ from app.models.models import Upload, DetectionResult, ImageAnalysis
 from app.pipelines.image.inference import ImagePipeline
 from app.pipelines.image_clip.inference import ClipPipeline
 from app.services.detection_errors import UnprocessableMediaError
+from app.services.calibration import calibrate
 
 
 # Load the trained image models once when this module is imported.
@@ -106,6 +107,12 @@ async def run_image_detection(
 
     confidence_score = max(fake_probability, real_probability)
 
+    # Post-hoc temperature-scaling calibration (additive, supplementary -- see app/services/calibration.py
+    # and CLAUDE.md section 25). Calibrates the underlying P(FAKE), then re-derives the two-sided confidence
+    # the same way confidence_score itself is derived above, so the two numbers stay on the same convention.
+    calibrated_fake = calibrate(fake_probability, "image")
+    calibrated_confidence = max(calibrated_fake, 1 - calibrated_fake) if calibrated_fake is not None else None
+
     elapsed_ms = (
         time.perf_counter() - start
     ) * 1000
@@ -116,6 +123,7 @@ async def run_image_detection(
         result_id=result_id,
         upload_id=upload.upload_id,
         confidence_score=confidence_score,
+        calibrated_confidence=calibrated_confidence,
         verdict=verdict,
         model_used="ConvNeXt-Tiny + CLIP ViT-B/16 (ensemble)",
         processing_time_ms=elapsed_ms,
