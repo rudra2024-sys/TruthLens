@@ -15,6 +15,7 @@ import LoadingState from './components/LoadingState'
 // LoadingState component already used for auth-checking, so a lazy page load looks the same as any other
 // brief loading state, not a new one.
 const Home = lazy(() => import('./Home'))
+const Dashboard = lazy(() => import('./Dashboard'))
 const Verify = lazy(() => import('./Verify'))
 const History = lazy(() => import('./History'))
 const Reports = lazy(() => import('./Reports'))
@@ -140,6 +141,14 @@ function AnimatedRoutes() {
         element={
           <ProtectedRoute>
             <Layout><PageTransition pathKey={p}><Verify /></PageTransition></Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/dashboard"
+        element={
+          <ProtectedRoute>
+            <Layout><PageTransition pathKey={p}><Dashboard /></PageTransition></Layout>
           </ProtectedRoute>
         }
       />

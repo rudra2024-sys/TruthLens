@@ -1004,3 +1004,94 @@ groundwork was done on both anyway: video's compression collapse (§23) and audi
   delete without flagging") and the general safety guidance around destructive actions both gate on explicit
   confirmation, which a blanket "don't ask permission for the 5 tiers" doesn't specifically supply for a
   destructive action — asked about explicitly in the wrap-up instead of assumed.
+
+---
+
+## 25. Second gap-analysis pass: 10 more things — added 2026-10-03
+
+A follow-up to section 24's 5-tier pass, same "execute everything genuinely non-training, flag what stays
+gated" working agreement. Two things stayed gated regardless: actual model retraining (no GPU/training infra
+in this session) and a new fusion/lip-sync model (a new ML system). Everything else below shipped.
+
+1. **Magic-byte upload validation** (`app/services/file_sniff.py`) — uploads were validated by the client-
+   supplied `Content-Type` header alone, trivially spoofable. Now checks the file's actual leading bytes
+   against known signatures per media family. Known, stated limitation: MP4 video and M4A audio share the
+   same ISO-BMFF container magic bytes and can't be told apart without parsing track types, which the real
+   decoders already do downstream - this validates the broader family, not the exact MIME.
+2. **Full account/data deletion** (`DELETE /auth/me`, `app/services/account_deletion.py`) - removes every
+   upload's file and generated PDF, every result/analysis/feedback row, then the user row. Closes a gap
+   `docs/ETHICS_AND_LIMITATIONS.md` section 5 had flagged since it was written. Frontend: `DeleteAccountModal`
+   requires typing DELETE to confirm.
+3. **Content-Security-Policy** (`frontend/nginx.prod.conf`) - every directive derived from statically auditing
+   the actual built bundle (zero `eval()`/`new Function()`/`Worker()` found) and every `src/` file referencing
+   an external domain or a `data:`/`blob:` URI, not guessed. `style-src 'unsafe-inline'` is a stated, accepted
+   trade-off (26 files use React's `style={{}}` plus GSAP's direct inline-style manipulation). Not verified in
+   a live browser console in this environment (no browser automation tool connected) - verified statically
+   instead, and that's said plainly rather than claimed as something it isn't.
+4. **Post-hoc confidence calibration** (`eval/fit_calibration.py`, `app/services/calibration.py`) - temperature
+   scaling fit against eval scores already measured (image: 6,500 scores; video: 300). ECE 0.158->0.056
+   (image), 0.254->0.059 (video). Shipped as a **separate** `calibrated_confidence` field everywhere (DB, API,
+   PDF, `ReportDetail.jsx`) - never replaces the existing raw `confidence_score`. Audio has no entry (no
+   labeled audio dataset exists locally, same gap as section 24's audio-robustness item) - `calibrate()`
+   returns `None` for it rather than a fabricated number.
+5. **Deep readiness probe** (`GET /health/ready`, `app/core/readiness.py`) - checks real DB connectivity and
+   whether every model checkpoint file is actually present, returning 503 (not just a body flag) when not
+   ready. `/health` itself is untouched - stays a fast, dependency-free liveness probe on purpose.
+6. **Frontend route-level code-splitting** (`App.jsx`) - every page is `React.lazy()`-loaded behind one
+   `Suspense` boundary now instead of bundled into a single file. Main bundle: 566KB -> 447KB (183KB -> 153KB
+   gzipped); the ">500KB" Vite build warning is gone; each page is its own 2-29KB chunk fetched on first visit.
+7. **Audit log** (`app/services/audit_log.py`, `AuditLogEntry`) - records signup, login, failed login attempts,
+   feedback withdrawal, account deletion, feedback export. Found and fixed a real concurrency bug while
+   testing (not assumed safe): a separate DB session for the log write deadlocks against SQLite's single-
+   writer lock when the caller's session is still mid-transaction, and flushing on the caller's session
+   instead gets silently rolled back whenever the route ends up raising (e.g. a failed login's 401) -
+   committing the caller's own session immediately avoids both failure modes (regression-tested in
+   `test_audit_log.py`). `AuditLogEntry.user_id` has no FK constraint on purpose, so an "account deleted" entry
+   survives the account it's about.
+8. **Request correlation IDs** (`app/core/request_context.py`) - every response carries `X-Request-ID` (an
+   inbound one is echoed, not replaced); the global exception handler logs and returns it in a 500's body; the
+   frontend's `friendlyError()` appends it as a visible "(reference: ...)" so a user-reported error is
+   actually traceable to server logs, closing a gap where that connection didn't exist at all.
+9. **Dashboard revived - as a new page, not a port.** `frontend/src/pages/Dashboard.jsx` and `Analytics.jsx`
+   were confirmed dead (section 3) and, on inspection, turned out to be worse than just unstyled: they use
+   colour tokens (`mint`, `canvas`, `snow`, `stroke`, `elev2`) that don't exist anywhere in the current
+   `tailwind.config.js` at all (the whole palette was replaced by the "Forensic Evidence Bench" ground/bone/
+   brass system), and Dashboard.jsx's three "pipeline" cards described stale, fabricated processing - "Noise
+   residual + FFT spectrum" for image, "Waveform / byte spectral cues" for audio - a direct violation of
+   section 8 rule 5 (no fabricated model claims in the UI). Reviving them as-is was rejected rather than
+   shipped. Built fresh instead: `frontend/src/Dashboard.jsx` (a new top-level page, matching the convention
+   of `Home.jsx`/`History.jsx` etc., not the dead `pages/` directory), reusing current components
+   (`VerdictBadge`, `CaseTag`, `Reveal`) and only real, unaltered numbers from `/stats` and `/history` - no
+   re-derived or invented statistics, no chart library (the old pages' neon recharts look also doesn't fit the
+   current serif/brass aesthetic - a bigger redesign than this pass scoped for). Routed at `/dashboard`, nav
+   entry added for logged-in users.
+10. **Demographic/fairness evaluation - attempted for real, not just flagged.** No locally-available dataset
+    had demographic labels (checked in section 24). Rather than stop there, searched Kaggle (the
+    `mcp__kaggle-token__*` tools available in this session) for a suitable one: UTKFace
+    (`jangedoo/utkface-new`, 23,708 real face photos, filename-encoded age/gender/race, CC-licensed, the
+    highest-usability/most-reused UTKFace mirror on Kaggle) - downloaded to `D:\eval_data\fairness\utkface\`
+    (same local-only convention as every other eval dataset, not committed). Built a balanced manifest (60
+    images x 2 genders x 5 races = 600, seed 42) and scored them with the exact deployed image ensemble via
+    the existing `eval.run_predictions`/`eval.make_report` harness (reusing the `source` column for per-group
+    breakdown, no new reporting code needed). Since every image is a real photo, this measures **real-photo
+    specificity per demographic group** - whether the deployed model is more likely to wrongly flag some
+    groups' genuine photos as FAKE than others' - not generation-side fairness (no demographic-labeled AI-
+    generated set was found or attempted). **Result: a real, measurable gap.** The deployed `max` ensemble's
+    real-photo specificity ranges from **90.0% (Black women and White men, 6/60 each wrongly flagged FAKE) to
+    100.0% (women of the "other" category and Indian men)** across the 10 gender x race groups - a 10-point
+    spread around the 94.8% overall figure (`eval/results/fairness/per_source.csv`). ConvNeXt alone is far
+    steadier across groups (96.7%-100%); CLIP alone shows most of the variance (91.7%-100%) and **CLIP's own
+    two worst groups - White men and Black women, both 91.7% - are exactly `max`'s two worst groups**,
+    pointing at the same CLIP-driven false-alarm pattern sections 14/22 already documented (CLIP causes more
+    false-FAKE alarms under degradation; here, apparently, it does so unevenly across demographic groups too)
+    now showing up as a fairness gap specifically, not independent per-group noise. n=60/group is small enough
+    that which *specific* groups land at the bottom carries real sampling noise (re-running this build script
+    with a different balanced sample is expected to shuffle which 1-2 groups are worst) - the number worth
+    trusting is the magnitude (CLIP's spread is roughly 3x ConvNeXt's) and the mechanism (CLIP, not ConvNeXt,
+    drives it), not which exact demographic label comes out lowest in any one run. Not fixed here (would need
+    either retraining-side investigation or a much larger demographic sample to confirm before acting on it) -
+    flagged in `docs/ETHICS_AND_LIMITATIONS.md` section 4 update below rather than left as the "Not evaluated"
+    line it was. Script: `eval/build_fairness_manifest.py` (deterministic per-group seeding, confirmed to
+    reproduce the identical 600-image sample across two separate runs) ->
+    `eval/data/manifest_fairness.csv` (manifest only, not the underlying images - those stay in
+    `D:\eval_data\`, not committed, same as every other eval dataset).

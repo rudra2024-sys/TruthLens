@@ -91,7 +91,7 @@ needs explicit approval and has not been started.
 | **False accusation** | A real photo or a genuine recording is labelled FAKE and used against its owner | Verdict bands (UNCERTAIN), explanations that are honest about being model behaviour not proof, this document, "lead, not proof" wording |
 | **False reassurance** | An AI image labelled REAL is used to lend credibility to a hoax | The evidence layer flags conflicts with file metadata; the UI says REAL means "no evidence found" |
 | **Over-trust in explanations** | A heatmap "highlights the fake part" | Grad-CAM shown with the caveat that it is not proof of manipulation; the heatmap fades when the model sees nothing suspicious, instead of implying evidence |
-| **Unequal performance across people** | Face-based video detection may work differently across skin tones, ages, genders or camera types | **Not evaluated.** No demographic breakdown exists yet; treat any claim of fairness as unsupported |
+| **Unequal performance across people** | The image detector may be more likely to wrongly flag some people's real photos as FAKE than others' | **Measured for the image detector, a real gap found**: real-photo specificity on 600 genuine UTKFace photos (balanced across 10 gender x race groups) ranges from 90.0% (Black women, White men) to 100% (Indian men and women of the "other" category) — CLIP drives essentially all the variance (ConvNeXt alone: 96.7-100%, CLIP alone: 91.7-100%), and CLIP's two worst groups are exactly the two groups dragging the deployed max-ensemble down, pointing at the same CLIP false-alarm pattern noted under robustness above rather than unrelated noise. n=60/group is small enough that *which* groups land lowest will shift between runs; the magnitude (CLIP's spread ~3x ConvNeXt's) and mechanism (CLIP-driven) are what to trust. **Video and audio remain unevaluated** on this axis |
 | **Evasion** | A forger re-encodes or blurs an image | Measured above; provenance is stripped by re-encoding; detectors are unreliable on new generators |
 | **Misuse as a targeting tool** | Using "detected as fake" to harass a creator | Not technically preventable; addressed by the wording and the responsible-use guidance below |
 | **Dual use** | Someone tests fakes until one passes | The service can be used as an oracle; rate limits at the proxy limit bulk probing but do not stop it |
@@ -119,10 +119,17 @@ needs explicit approval and has not been started.
    below-chance AUC under blur/downscale) is the single worst number in this document and real-world video is
    essentially never clean. *(Needs approval.)*
 2. Retrain images with **more generators** (ChatGPT-class images and consumer face-swap apps) and
-   **noise/compression augmentation** — this is where the image measurements point. *(Needs approval.)*
+   **noise/compression augmentation** — and specifically investigate **CLIP's demographic instability**
+   (§4's new fairness measurement: CLIP's spread across groups is ~3x ConvNeXt's, and CLIP's worst groups
+   track the ensemble's worst groups) once a larger sample confirms which groups it actually affects most —
+   the current n=60/group sample is too small to name a specific group with confidence. *(Needs approval.)*
 3. **Evaluate audio under the same compression/noise degradations as image and video** — never done; given what
    §3 found for video, assuming audio is fine would be an unfounded assumption, not a measured one.
-4. Evaluate on **demographic slices** and on more real-world videos than the current 10.
-5. Add **data retention controls** and a delete-my-data endpoint.
-6. Decide deliberately whether provenance should influence the verdict (today it is shown next to it, never merged).
-7. Report calibrated probabilities instead of raw scores.
+4. Extend the demographic evaluation (§4) to **video and audio**, and to a larger, non-UTKFace sample to
+   confirm the image gap isn't a 60-images-per-group artifact — also, on more real-world videos than the
+   current 10.
+5. Decide deliberately whether provenance should influence the verdict (today it is shown next to it, never merged).
+
+**Done since this list was first written**: data retention / a delete-my-data endpoint (`DELETE /auth/me`),
+and calibrated probabilities (`calibrated_confidence`, shown alongside the raw score, not replacing it) — both
+shipped 2026-10-03, see CLAUDE.md section 25.

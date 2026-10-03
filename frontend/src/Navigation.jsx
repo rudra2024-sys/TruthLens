@@ -46,6 +46,7 @@ const Navigation = () => {
 
   const items = [
     { label: 'Home', link: '/', ariaLabel: 'Go to home' },
+    ...(user ? [{ label: 'Dashboard', link: '/dashboard', ariaLabel: 'Go to dashboard' }] : []),
     { label: 'Verify', link: '/verify', ariaLabel: 'Go to verify' },
     { label: 'History', link: '/history', ariaLabel: 'Go to history' },
     { label: 'Reports', link: '/reports', ariaLabel: 'Go to reports' },
