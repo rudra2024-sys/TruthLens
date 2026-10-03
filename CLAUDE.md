@@ -770,9 +770,15 @@ measured on more than 10 videos.
   but it is not a broad accuracy win and should not be described as one — scripts:
   `eval/run_predictions_rotation_aware.py` (mirrors `run_predictions.py`, swaps in `rotation_aware.predict`),
   reports in `eval/results/video_rtfs_{baseline,rotation_aware}/`.
-- **Not investigated**: the other Akool blind-spot clip (`real video`/`fake video` pair at 464x832) is
-  untouched by this fix — its own `detect_clip_rotation` returns 0 (native orientation already finds *some*
-  face), so whatever its problem is, it isn't "no face found." Root cause still open.
+- **Correction (2026-10-03): the "other" clip isn't a mystery — it's `fake video 3.mp4`, already diagnosed.**
+  Section 3's original Akool/Magic Hour pair is `fake video 3.mp4` (visible "AKOOL" watermark, confirmed by
+  eye when diagnosing the poster lock-on below) and `fake video 4.mp4` (visible "Magic Hour" watermark, the
+  sideways-encoding clip this section fixes). Both now have a known cause: video 4 is sideways encoding (this
+  section), video 3 is the Haar cascade locking onto a wall poster/wrist instead of the actual face (section
+  11's original finding, and the specific case section 20's consensus backend targets — unsuccessfully, see
+  that section). Untouched by *this* section's rotation fix specifically since its `detect_clip_rotation`
+  returns 0 (native orientation already finds *some* face, just the wrong one) — correct behaviour for a
+  fallback scoped to "zero faces found," not evidence the cause is unknown.
 - Tests: `backend/tests/test_video_rotation_fallback.py` (12 — orientation-detection unit tests using a real
   face image rotated by hand, no checkpoint needed; backend-registry wiring tests; and checkpoint-gated tests,
   `-m models`-equivalent via file-existence skip matching `test_video_cnn_gru_v5.py`'s pattern, confirming
@@ -922,4 +928,79 @@ spot on heavily-compressed footage.**
 - **Not done (scope/time, flagged rather than silently skipped)**: full 300-video x 21-setting run (would take
   several hours of background compute, not attempted this session), a fix of any kind (training-side
   compression augmentation is the obvious lever and needs section 8 rule 1 approval), and updating the
-  user-facing docs mentioned above.
+  user-facing docs mentioned above. **Update 2026-10-03: done** — `docs/ETHICS_AND_LIMITATIONS.md` §3 now
+  carries this finding (fake-recall to 0% at JPEG q10, below-chance AUC under blur/downscale), and its own §2
+  audio row and §7 priority list were corrected/extended at the same time (audio row was stale, still said
+  "uses AASIST, not evaluated" when Audio Model v1/wav2vec2 has been the default for a while with real 5/6
+  held-out results — see CLAUDE.md §3).
+
+---
+
+## 24. Project-wide pass: full gap analysis + everything non-training executed — 2026-10-03
+
+User asked for a full project analysis and plan, then authorized executing all of it without further
+check-ins. Two categories stayed gated regardless of that blanket authorization, flagged rather than faked:
+**actual model retraining** (no GPU/training infra in this session — every prior retrain in this project ran
+on Colab) and a **new fusion/lip-sync model** (a new ML system, not a config change) — both still need
+section 8 rule 1 approval plus, for retraining, an actual training session this environment can't run. Real
+groundwork was done on both anyway: video's compression collapse (§23) and audio's untested-robustness gap
+(below) are now precisely measured/scoped, so a future training session knows exactly what to fix.
+
+- **Stale frontend audio labels fixed**: `ReportDetail.jsx` still said "AASIST spoof probability" /
+  "AASIST score variability" even though Audio Model v1 (wav2vec2) has been the active default for a while —
+  the PDF report (`report/generator.py`) was already fixed to generic, backend-agnostic labels; the frontend
+  just never got the same fix. Now says "Audio spoof probability" / "Audio score variability", matching the
+  PDF and the same "label what was computed, not a model name" convention CLAUDE.md already documents.
+- **`docs/ETHICS_AND_LIMITATIONS.md` brought current**: added the video compression-robustness finding (§3,
+  mirroring the image section's structure and sourced from the same `eval/results/` numbers), corrected a
+  stale line that still described audio as "AASIST, not evaluated" (now accurately describes Audio Model
+  v1/wav2vec2 with its real held-out numbers, and flags that audio robustness is untested — see below), added
+  a note to the video blind-spot row that one of the two consumer-app misses has a diagnosed (if narrow) fix,
+  and reordered §7's priority list so video's robustness collapse leads (it's the worst number in the
+  document).
+- **Correction to CLAUDE.md §19 itself**: re-examined the "other Akool blind-spot clip, root cause still
+  open" line from that section and found it was wrong — `fake video 3.mp4` (visible "AKOOL" watermark) IS
+  that clip, and its cause (Haar locking onto a wall poster) was already diagnosed in §11 and already had a
+  fix attempt in §20 (net negative, not adopted). Nothing about this was actually unknown; §19's fix is
+  correctly scoped to not touch it (different failure mode: a wrong face found, not zero faces found), but
+  the section's wording implied an open mystery that wasn't one. Fixed in place.
+- **Production hardening (`frontend/nginx.prod.conf`)**: upload/detect now have their own rate-limit zone
+  (20r/m per IP, burst 5) separate from the lighter catch-all `/api/` block — previously only `/auth/` was
+  rate-limited, leaving the actually-expensive (CPU inference) endpoints completely open to scripted abuse.
+  CORS's existing warn-not-block behaviour (`core/startup.py`) was deliberately left alone after reconsidering
+  it — it's a considered prior design choice (some deployments legitimately want open CORS; Bearer-token auth
+  in `localStorage`, not cookies, limits the real CSRF-style exposure), not an oversight, so it wasn't flipped
+  to a hard block without a clearer reason than "tighten things." Docker images still cannot be verified
+  built/run in this environment (Docker Desktop's engine is installed but not running here, confirmed again
+  this session) — still an open gap, not newly introduced.
+- **Dependency security**: `npm audit` found 4 vulnerabilities (axios 1.0.0-1.19.0: 12 advisories including
+  several ReDoS/prototype-pollution issues; nanoid <3.3.18: infinite loop on a zero-size generator). Both
+  fixed via `npm audit fix` (non-breaking: axios -> 1.20.0, nanoid -> 3.3.19 transitively via postcss),
+  confirmed with a clean `npm ci` + `npm run build` afterward. One remaining moderate advisory (esbuild/vite,
+  dev-server-only: lets any website send requests to a running `npm run dev` server) needs a breaking vite
+  major-version bump (`npm audit fix --force`) — deliberately NOT forced without testing the whole build
+  pipeline against it; flagged rather than silently left in the "fixed" count.
+- **CI verified locally, not just assumed**: ran the exact commands `.github/workflows/ci.yml` runs —
+  `pytest -m "not models" -ra --tb=short` (271 passed, 16 deselected) and a clean-lockfile `npm ci && npm run
+  build` (both succeeded) — closing the "CI has not been run/verified" gap noted in section 7, at least for
+  what can be checked without actually pushing to GitHub and watching Actions run.
+- **Audio robustness harness built, honestly not yet measured**: `eval/perturbations_audio.py` +
+  `eval/run_audio_robustness.py`, mirroring `run_video_robustness.py`'s approach (noise, volume, and a real
+  MP3 codec round-trip via PyAV, applied in memory to the production 16kHz mono pipeline). **No locally
+  available labeled audio deepfake dataset exists** (checked: only image/video datasets are present under
+  `D:\eval_data`) — sourcing one (ASVspoof2019-LA, In-The-Wild, etc.) needs a Kaggle download or user-supplied
+  files, not attempted here without that direction. What IS verified: the harness runs end-to-end against
+  synthetic placeholder audio without crashing and produces sane, non-degenerate, non-identical scores per
+  setting (`tests/test_audio_robustness_eval.py`, 7 tests) — confirms the mechanism works, says nothing about
+  the deployed model's real robustness. Given what §23 found for video, treat audio's robustness to ordinary
+  re-sharing as a genuinely open question, not an assumed-fine one.
+- **Feedback loop reconsidered, not rebuilt**: checked whether "close the feedback loop" needed new tooling.
+  It doesn't — `scripts/export_feedback.py` already produces an agreement-rate/confusion-matrix summary and a
+  manifest scoreable by `eval.run_predictions`, exactly the loop-closing step. The actual gap is production
+  usage (the local dev DB has 1 feedback row total, from this session's own testing), not missing tooling —
+  building a fancier report generator for data that doesn't exist yet would be speculative busywork, so this
+  was correctly left alone rather than padded out for the sake of a checkbox.
+- **Dead code**: left alone. Deletion is a destructive action the project's own rules (section 3, "don't
+  delete without flagging") and the general safety guidance around destructive actions both gate on explicit
+  confirmation, which a blanket "don't ask permission for the 5 tiers" doesn't specifically supply for a
+  destructive action — asked about explicitly in the wrap-up instead of assumed.

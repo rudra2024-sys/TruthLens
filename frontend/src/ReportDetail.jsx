@@ -19,10 +19,13 @@ import { stationTag } from './lib/stations'
 
 /**
  * Evidence rows are labeled for what the backend actually computed, per
- * modality — never a specific model name the pipeline doesn't use. See
- * CLAUDE.md's Phase 3 audit: video is a byte-entropy heuristic, and the
- * audio DB columns (wav2vec_score/lcnn_score) are legacy names that the
- * active AASIST detector repurposes, not a wav2vec2/LCNN pipeline.
+ * modality — never a specific model name the pipeline doesn't use. The
+ * audio DB columns (wav2vec_score/lcnn_score) are legacy field names kept
+ * for schema stability; they hold mean/std spoof probability from whichever
+ * audio backend is active (see backend/app/services/audio/backend.py — Audio
+ * Model v1/wav2vec2 by default, AASIST as a rollback), so the labels below
+ * describe what was computed, not a specific model name, matching the PDF
+ * report's generator.py (fixed 2026-10-03, this file was stale until now).
  */
 /**
  * Low-confidence transparency note (added 2026-10-03, see CLAUDE.md section 21): when the face detector found
@@ -70,8 +73,8 @@ function EvidenceRows({ result }) {
   }
   if (result.audio_analysis) {
     const a = result.audio_analysis
-    rows.push(['AASIST spoof probability', `${(a.wav2vec_score * 100).toFixed(1)}%`])
-    rows.push(['AASIST score variability', `${(a.lcnn_score * 100).toFixed(1)}%`])
+    rows.push(['Audio spoof probability', `${(a.wav2vec_score * 100).toFixed(1)}%`])
+    rows.push(['Audio score variability (std. across windows)', `${(a.lcnn_score * 100).toFixed(1)}%`])
   }
 
   if (rows.length === 0) return null

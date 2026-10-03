@@ -174,3 +174,12 @@ def test_prod_nginx_sets_security_headers_and_long_proxy_timeouts():
     for needle in ("X-Content-Type-Options", "X-Frame-Options", "Referrer-Policy", "proxy_read_timeout", "server_tokens off",
                    "limit_req_zone", "limit_req zone=auth_zone", "location /api/v1/auth/"):
         assert needle in text
+
+
+def test_prod_nginx_rate_limits_upload_and_detect():
+    """Added 2026-10-03: upload/detect trigger real model inference, so they get their own rate-limit zone
+    separate from the lighter catch-all /api/ block, same as auth already had."""
+    text = (REPO / "frontend" / "nginx.prod.conf").read_text(encoding="utf-8")
+    for needle in ("limit_req_zone $binary_remote_addr zone=inference_zone", "location /api/v1/upload/",
+                   "location /api/v1/detect/", "limit_req zone=inference_zone"):
+        assert needle in text

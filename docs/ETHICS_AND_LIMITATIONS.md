@@ -37,9 +37,9 @@ error measured at 0.16 for images and 0.25 for video.)
 | Celeb-DF-v2, original protocol (6,529 videos) | — | 0.695 |
 | Two consumer-app fakes (Akool, Magic Hour), 10 local videos in total | missed | too few videos to conclude anything |
 
-The video model looks only at a detected face; if the face detector locks onto something else (it locked onto a wall poster in one clip), the model never sees the swap.
+The video model looks only at a detected face; if the face detector locks onto something else (it locked onto a wall poster in one clip), the model never sees the swap. One of the two consumer-app misses has a diagnosed, fixable cause: that clip's frames are encoded sideways, so the face detector finds nothing at all. An opt-in fallback that retries rotated orientations fixes that specific clip, but tested against 300 unseen face-swap videos it never triggered once — the sideways-encoding problem does not generalise beyond that one app's export quirk, so it is not the default. The other consumer-app miss has no diagnosed cause yet.
 
-**Audio** uses a pretrained model (AASIST). This project has not evaluated it on its own data.
+**Audio** (Audio Model v1, wav2vec2-base; threshold 0.5) has been evaluated on its own held-out data, unlike the line this replaced used to say: 5 of 6 held-out test sets pass, including a 59-system unseen-voice-conversion stress test (98.3%) and fresh unseen-speaker genuine audio (10/10 real). It has **not** been tested under compression, noise or re-encoding the way image and video have (see §3) — given what that testing found for video, treat audio's robustness to ordinary re-sharing as unknown, not assumed fine.
 
 ## 3. Robustness — what happens to real-world pictures
 
@@ -60,6 +60,26 @@ We re-tested 300 images (label-balanced; 180 from sources the models trained on,
   deliberate look at retraining with noise/compression augmentation; **no model was changed here** (model changes need explicit approval).
 * On unseen sources the ranking ability starts near chance (AUC 0.61 on this subset), so degradations mostly shift everything toward "FAKE" (more fakes caught *and* more
   real photos flagged) without improving discrimination.
+
+**Video is much more fragile than either image sub-model — the most serious robustness finding in this document.**
+We re-tested a 30-video subset (10 real originals, 10 inswapper fakes, 10 uniface fakes, from the same unseen RTFS
+source as the headline video numbers above) under 11 degradations, reusing the exact same perturbation code as the
+image study above so the severity levels are directly comparable
+([`backend/eval/results/video_robustness/report.md`](../backend/eval/results/video_robustness/report.md)). Unlike
+images, **video did not hold up to ordinary re-sharing**:
+* At JPEG quality 10, **fake-recall falls to 0 %** — every compressed fake in the sample was scored REAL.
+* Heavy blur (σ = 3) and a 4x-downscale-then-restore both land *below chance* (AUC 0.41 and 0.47 respectively) —
+  at that severity the score is pointing the wrong way, not just a weaker signal.
+* Even the "safe" sharing pipelines that left images essentially untouched (AUC ≥ 0.99) hurt video badly: a
+  WhatsApp-style resize + recompress drops AUC to 0.61, WebP to 0.55.
+* This subset's own clean-video accuracy (63 %) reads lower than the 79 % headline number above because it is a
+  much smaller, differently-selected sample of the same model — expected noise, not a second model. The
+  *degradation trend*, not that specific starting number, is the finding to trust.
+
+Real-world video is essentially never clean — WhatsApp, Instagram and re-uploads all recompress it — so the
+deployed model's accuracy on footage people actually encounter day to day is likely substantially worse than the
+clean-benchmark numbers in §2 suggest. No fix exists yet; the obvious one (training-side compression augmentation)
+needs explicit approval and has not been started.
 
 **Provenance is fragile.** An AI declaration embedded in a file's metadata survives only a byte-for-byte copy. Every re-encode we tried — screenshot, resize, JPEG, blur, a plain "Save as" — removed it
 (8/8 kept in a straight copy; 0/8 after any re-save). It can add evidence to an untouched file; its absence proves nothing.
@@ -95,8 +115,14 @@ We re-tested 300 images (label-balanced; 180 from sources the models trained on,
 
 ## 7. What would make it better (in order)
 
-1. Retrain with **more generators** (including ChatGPT-class images and consumer face-swap apps) and **noise/compression augmentation** — this is where the measurements point. *(Needs approval.)*
-2. Evaluate on **demographic slices** and on more real-world videos than the current 10.
-3. Add **data retention controls** and a delete-my-data endpoint.
-4. Decide deliberately whether provenance should influence the verdict (today it is shown next to it, never merged).
-5. Report calibrated probabilities instead of raw scores.
+1. Retrain **video with compression/resize augmentation** — §3's finding (fake-recall to 0 % at JPEG q10,
+   below-chance AUC under blur/downscale) is the single worst number in this document and real-world video is
+   essentially never clean. *(Needs approval.)*
+2. Retrain images with **more generators** (ChatGPT-class images and consumer face-swap apps) and
+   **noise/compression augmentation** — this is where the image measurements point. *(Needs approval.)*
+3. **Evaluate audio under the same compression/noise degradations as image and video** — never done; given what
+   §3 found for video, assuming audio is fine would be an unfounded assumption, not a measured one.
+4. Evaluate on **demographic slices** and on more real-world videos than the current 10.
+5. Add **data retention controls** and a delete-my-data endpoint.
+6. Decide deliberately whether provenance should influence the verdict (today it is shown next to it, never merged).
+7. Report calibrated probabilities instead of raw scores.
