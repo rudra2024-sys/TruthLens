@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -9,6 +9,7 @@ from app.api.routes.auth import get_current_user
 from app.core.database import get_db
 from app.models.models import DetectionResult, Feedback, Upload, User
 from app.schemas.schemas import FeedbackIn, FeedbackOut
+from app.services.audit_log import log_event
 
 router = APIRouter(prefix="/detect", tags=["Feedback"])
 
@@ -61,9 +62,15 @@ async def put_feedback(
 
 
 @router.delete("/{upload_id}/feedback", status_code=204)
-async def delete_feedback(upload_id: str, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
+async def delete_feedback(
+    upload_id: str,
+    http_request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """Withdraw feedback (and with it any consent to reuse the file)."""
     await _owned_upload(db, upload_id, current_user)
     fb = await _feedback_for(db, upload_id, current_user)
     if fb is not None:
         await db.delete(fb)
+        await log_event(db, "feedback_withdrawn", user_id=current_user.user_id, detail=upload_id, request=http_request)

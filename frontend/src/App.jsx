@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { Suspense, lazy } from 'react'
 import { BrowserRouter, Routes, Route, useLocation, Navigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import useReducedMotion from './hooks/useReducedMotion'
@@ -6,16 +6,23 @@ import { AuthProvider, useAuth } from './context/AuthContext'
 import Navigation from './Navigation'
 import Footer from './Footer'
 import DotField from './components/DotField'
-import Home from './Home'
-import Verify from './Verify'
-import History from './History'
-import Reports from './Reports'
-import About from './About'
-import Login from './Login'
-import SignUp from './SignUp'
-import ReportDetail from './ReportDetail'
-import NotFound from './NotFound'
 import LoadingState from './components/LoadingState'
+
+// Route-level code-splitting (added 2026-10-03): the production build was one 566KB+ JS bundle (Vite's own
+// build warns about chunks over 500KB) because every page - including GSAP/recharts-heavy ones like Verify
+// and Reports - loaded on first paint regardless of which route the visitor actually opened. Each page is
+// its own chunk now, fetched only when its route is first visited; Suspense's fallback reuses the same
+// LoadingState component already used for auth-checking, so a lazy page load looks the same as any other
+// brief loading state, not a new one.
+const Home = lazy(() => import('./Home'))
+const Verify = lazy(() => import('./Verify'))
+const History = lazy(() => import('./History'))
+const Reports = lazy(() => import('./Reports'))
+const About = lazy(() => import('./About'))
+const Login = lazy(() => import('./Login'))
+const SignUp = lazy(() => import('./SignUp'))
+const ReportDetail = lazy(() => import('./ReportDetail'))
+const NotFound = lazy(() => import('./NotFound'))
 
 const ProtectedRoute = ({ children }) => {
   const { user, checking } = useAuth()
@@ -125,6 +132,7 @@ function AnimatedRoutes() {
   return (
     <>
       <ScrollToTop />
+      <Suspense fallback={<LoadingState label="Loading" layout="screen" size="sm" />}>
       <Routes>
       <Route path="/" element={<Layout><PageTransition pathKey={p}><Home /></PageTransition></Layout>} />
       <Route
@@ -178,6 +186,7 @@ function AnimatedRoutes() {
       />
       <Route path="*" element={<Layout><PageTransition pathKey={p}><NotFound /></PageTransition></Layout>} />
       </Routes>
+      </Suspense>
     </>
   )
 }

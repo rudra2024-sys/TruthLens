@@ -6,6 +6,11 @@ const api = axios.create({
 })
 
 function friendlyError(err) {
+  // Added 2026-10-03: a 500's body carries a request_id (see backend/app/main.py's exception handler) so a
+  // user-reported error is actually traceable in server logs - without this it's shown then lost forever.
+  const requestId = err.response?.data?.request_id || err.response?.headers?.['x-request-id']
+  const suffix = requestId ? ` (reference: ${requestId})` : ''
+
   if (err.response?.data?.detail) {
     const detail = err.response.data.detail
 
@@ -13,7 +18,7 @@ function friendlyError(err) {
       return detail.map((x) => x.msg).join(', ')
     }
 
-    return detail
+    return detail + suffix
   }
 
   if (err.code === 'ECONNABORTED') {

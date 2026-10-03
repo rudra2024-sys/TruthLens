@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, EmailStr
 from sqlalchemy import select
@@ -13,6 +13,7 @@ from app.core.security import (
 )
 from app.models.models import User
 from app.services.account_deletion import delete_account
+from app.services.audit_log import log_event
 
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
@@ -51,6 +52,7 @@ class UserOut(BaseModel):
 @router.post("/signup", response_model=AuthResponse, status_code=201)
 async def signup(
     request: SignupRequest,
+    http_request: Request,
     db: AsyncSession = Depends(get_db),
 ):
     email = request.email.lower().strip()
@@ -79,6 +81,7 @@ async def signup(
 
     db.add(user)
     await db.flush()
+    await log_event(db, "signup", user_id=user.user_id, request=http_request)
 
     token = create_access_token(user.user_id)
 
@@ -94,6 +97,7 @@ async def signup(
 @router.post("/login", response_model=AuthResponse)
 async def login(
     request: LoginRequest,
+    http_request: Request,
     db: AsyncSession = Depends(get_db),
 ):
     email = request.email.lower().strip()
@@ -108,6 +112,10 @@ async def login(
         request.password,
         user.password_hash,
     ):
+        # Logged without a user_id (the whole point is this attempt couldn't be tied to a real account, or
+        # the password was wrong) - the attempted email goes in `detail` so repeated-attempt patterns against
+        # one address are still visible to anyone reading the log later.
+        await log_event(db, "login_failed", detail=email, request=http_request)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password.",
@@ -119,6 +127,7 @@ async def login(
             detail="This account is disabled.",
         )
 
+    await log_event(db, "login", user_id=user.user_id, request=http_request)
     token = create_access_token(user.user_id)
 
     return AuthResponse(
@@ -175,6 +184,7 @@ async def me(
 
 @router.delete("/me", status_code=204)
 async def delete_me(
+    http_request: Request,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -182,4 +192,7 @@ async def delete_me(
     stored file and generated PDF report, every detection result/analysis row, and all feedback -- see
     app/services/account_deletion.py. Irreversible. The bearer token used to call this stops working
     immediately afterward (get_current_user 401s once the user row is gone)."""
+    # Logged before the delete, while the user still exists to attribute it to - AuditLogEntry.user_id has
+    # no FK constraint specifically so this row survives the account it's about (see models.py).
+    await log_event(db, "account_deleted", user_id=current_user.user_id, request=http_request)
     await delete_account(db, current_user)

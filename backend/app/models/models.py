@@ -180,3 +180,20 @@ class Feedback(Base):
     allow_reuse: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at:  Mapped[str] = mapped_column(String, default=lambda: datetime.utcnow().isoformat())
     updated_at:  Mapped[str] = mapped_column(String, default=lambda: datetime.utcnow().isoformat())
+
+
+class AuditLogEntry(Base):
+    """A record of a sensitive action (added 2026-10-03) - login/signup/feedback-withdrawal/account-deletion,
+    see app/services/audit_log.py. Deliberately NOT a foreign key to users.user_id: account deletion must
+    still be able to log "this user deleted their account" as the very last thing that happens for them, and
+    a hard FK would either block that delete or force the log row to be deleted right along with the account
+    it's supposed to be a record of. user_id here is a plain, unenforced string instead - see
+    docs/ETHICS_AND_LIMITATIONS.md section 5, which has flagged "no audit log" as a gap since it was written.
+    """
+    __tablename__ = "audit_log"
+    entry_id:   Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id:    Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+    action:     Mapped[str] = mapped_column(String, index=True)     # e.g. "login", "signup", "account_deleted"
+    detail:     Mapped[str | None] = mapped_column(String, nullable=True)
+    ip_address: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[str] = mapped_column(String, default=lambda: datetime.utcnow().isoformat())
