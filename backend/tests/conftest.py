@@ -108,6 +108,14 @@ def wav_bytes(seconds=2.0, sr=16000) -> bytes:
     return buf.getvalue()
 
 
+def video_bytes() -> bytes:
+    """Not a decodable video (these tests stub the detector and never touch the frames) - just enough bytes
+    for a valid ISO-BMFF `ftyp` box so the magic-byte upload check (app/services/file_sniff.py, added
+    2026-10-03) doesn't reject it. All-zero placeholder bytes used to pass here only because upload
+    validation trusted the Content-Type header alone; now it also checks the file's actual leading bytes."""
+    return b"\x00\x00\x00\x18ftypisom\x00\x00\x02\x00isomiso2mp41" + b"\x00" * 40
+
+
 @pytest.fixture()
 def upload(client):
     """upload(headers, data, name, content_type) -> upload_id."""

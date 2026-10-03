@@ -1,7 +1,8 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from './context/AuthContext'
 import StaggeredMenu from './components/StaggeredMenu'
+import DeleteAccountModal from './components/DeleteAccountModal'
 import './components/StaggeredMenuTheme.css'
 
 /**
@@ -29,6 +30,7 @@ function pickGreeting(seed) {
 const Navigation = () => {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
+  const [deleteOpen, setDeleteOpen] = useState(false)
 
   const handleLogout = () => {
     logout()
@@ -52,25 +54,29 @@ const Navigation = () => {
       ? { label: 'Log Out', link: '#', ariaLabel: 'Log out', onClick: handleLogout }
       : { label: 'Log In', link: '/login', ariaLabel: 'Log in' },
     ...(!user ? [{ label: 'Sign Up', link: '/signup', ariaLabel: 'Create an account' }] : []),
+    ...(user ? [{ label: 'Delete Account', link: '#', ariaLabel: 'Delete your account', onClick: () => setDeleteOpen(true) }] : []),
   ]
 
   return (
-    <StaggeredMenu
-      position="right"
-      items={items}
-      displaySocials={false}
-      displayItemNumbering
-      colors={['#1F2022', '#0B0C0D']}
-      logoUrl="/truthlens-logo.svg"
-      logoText="TruthLens"
-      greeting={greeting}
-      menuButtonColor="#EDEAE3"
-      openMenuButtonColor="#EDEAE3"
-      accentColor="#C89361"
-      changeMenuColorOnOpen={false}
-      isFixed
-      closeOnClickAway
-    />
+    <>
+      <StaggeredMenu
+        position="right"
+        items={items}
+        displaySocials={false}
+        displayItemNumbering
+        colors={['#1F2022', '#0B0C0D']}
+        logoUrl="/truthlens-logo.svg"
+        logoText="TruthLens"
+        greeting={greeting}
+        menuButtonColor="#EDEAE3"
+        openMenuButtonColor="#EDEAE3"
+        accentColor="#C89361"
+        changeMenuColorOnOpen={false}
+        isFixed
+        closeOnClickAway
+      />
+      <DeleteAccountModal open={deleteOpen} onClose={() => setDeleteOpen(false)} />
+    </>
   )
 }
 

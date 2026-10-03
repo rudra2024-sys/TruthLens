@@ -248,6 +248,17 @@ export const getCurrentUser = async () => {
   }
 }
 
+// Permanently deletes the account and everything belonging to it (uploads, reports, results, feedback) --
+// see backend/app/services/account_deletion.py. Irreversible; the caller is responsible for confirming with
+// the user before calling this (see components/DeleteAccountModal.jsx) and logging out afterward.
+export const deleteAccount = async () => {
+  try {
+    return await api.delete('/auth/me')
+  } catch (err) {
+    throw new Error(friendlyError(err))
+  }
+}
+
 export const saveAuth = (authData) => {
   localStorage.setItem(
     'truthlens_token',

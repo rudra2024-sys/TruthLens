@@ -5,7 +5,7 @@ import io
 import pytest
 
 from app.services.detection_errors import UnprocessableMediaError
-from tests.conftest import TEST_DATA, jpeg_bytes, png_bytes
+from tests.conftest import TEST_DATA, jpeg_bytes, png_bytes, video_bytes, wav_bytes
 
 
 def _detect(client, headers, uid):
@@ -15,9 +15,9 @@ def _detect(client, headers, uid):
 # ---------------------------------------------------------------- dispatch by media type
 
 @pytest.mark.parametrize("data,name,ctype,kind,analysis_key", [
-    (png_bytes(), "a.png", "image/png", "image", "image_analysis"),
-    (b"\x00" * 64, "a.mp4", "video/mp4", "video", "video_analysis"),
-    (b"\x00" * 64, "a.wav", "audio/wav", "audio", "audio_analysis"),
+    pytest.param(png_bytes(), "a.png", "image/png", "image", "image_analysis", id="image"),
+    pytest.param(video_bytes(), "a.mp4", "video/mp4", "video", "video_analysis", id="video"),
+    pytest.param(wav_bytes(), "a.wav", "audio/wav", "audio", "audio_analysis", id="audio"),
 ])
 def test_detection_dispatches_by_media_type(client, auth, upload, stub_detectors, data, name, ctype, kind, analysis_key):
     uid = upload(auth, data, name, ctype)
@@ -118,7 +118,7 @@ def test_provenance_for_a_plain_file_says_nothing_and_never_invents_evidence(cli
 def test_provenance_available_for_audio_c2pa_only(client, scan, auth):
     """Audio gets a C2PA-only provenance check (see provenance/service.py) - no EXIF/ELA/pixel-watermark
     equivalent exists for audio in this codebase, but Content Credentials are media-agnostic."""
-    uid = scan(auth, b"\x00" * 64, "a.wav", "audio/wav")
+    uid = scan(auth, wav_bytes(), "a.wav", "audio/wav")
     body = client.get(f"/api/v1/detect/{uid}/provenance", headers=auth).json()
     assert body["available"] is True
     assert body["metadata"] is None and body["ela"] is None and body["watermark"] is None

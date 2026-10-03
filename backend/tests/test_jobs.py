@@ -8,9 +8,9 @@ from fastapi.concurrency import run_in_threadpool
 
 from app.services.detection_errors import UnprocessableMediaError
 from app.services.jobs import JobManager, manager
-from tests.conftest import make_stub, png_bytes
+from tests.conftest import make_stub, png_bytes, video_bytes
 
-VIDEO = (b"\x00" * 64, "clip.mp4", "video/mp4")
+VIDEO = (video_bytes(), "clip.mp4", "video/mp4")
 
 
 def slow_video_stub(steps=5, delay=0.03, gate=None, error=None, ran=None):

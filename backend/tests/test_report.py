@@ -5,7 +5,7 @@ import io
 import pytest
 from pypdf import PdfReader
 
-from tests.conftest import TEST_DATA, wav_bytes
+from tests.conftest import TEST_DATA, video_bytes, wav_bytes
 
 
 def _pdf_text(content: bytes) -> str:
@@ -46,7 +46,7 @@ def test_video_v1_report_uses_the_correct_labels_not_the_old_heuristic_ones(clie
     """Regression: with Video Model v1 the PDF still said 'Structure Entropy Score' / 'Byte Windows Sampled'."""
     stub_detectors("video", verdict="UNCERTAIN", confidence=0.48,
                    model_used="TruthLens Video Model v1 (EfficientNet-B0, epoch 11)")
-    uid = upload(auth, b"\x00" * 64, "a.mp4", "video/mp4")
+    uid = upload(auth, video_bytes(), "a.mp4", "video/mp4")
     assert client.post(f"/api/v1/detect/{uid}", headers=auth).status_code == 201
     text = _report(client, auth, uid)
     assert "Video Model v1 FAKE Probability" in text and "Frames Analyzed" in text
@@ -58,7 +58,7 @@ def test_low_face_detection_rate_adds_a_caution_note(client, auth, upload, stub_
     surface a caution, not be silently absorbed into the verdict."""
     stub_detectors("video", verdict="UNCERTAIN", confidence=0.48,
                    model_used="TruthLens Video Model v1 (EfficientNet-B0, epoch 11)", frames_with_face=3)
-    uid = upload(auth, b"\x00" * 64, "a.mp4", "video/mp4")
+    uid = upload(auth, video_bytes(), "a.mp4", "video/mp4")
     assert client.post(f"/api/v1/detect/{uid}", headers=auth).status_code == 201
     text = _report(client, auth, uid)
     assert "Frames With a Detected Face: 3 / 16" in text
@@ -68,7 +68,7 @@ def test_low_face_detection_rate_adds_a_caution_note(client, auth, upload, stub_
 def test_high_face_detection_rate_has_no_caution_note(client, auth, upload, stub_detectors):
     stub_detectors("video", verdict="UNCERTAIN", confidence=0.48,
                    model_used="TruthLens Video Model v1 (EfficientNet-B0, epoch 11)", frames_with_face=15)
-    uid = upload(auth, b"\x00" * 64, "a.mp4", "video/mp4")
+    uid = upload(auth, video_bytes(), "a.mp4", "video/mp4")
     assert client.post(f"/api/v1/detect/{uid}", headers=auth).status_code == 201
     text = _report(client, auth, uid)
     assert "Frames With a Detected Face: 15 / 16" in text
@@ -77,7 +77,7 @@ def test_high_face_detection_rate_has_no_caution_note(client, auth, upload, stub
 
 def test_heuristic_video_report_keeps_its_own_labels(client, auth, upload, stub_detectors):
     stub_detectors("video", verdict="UNCERTAIN", confidence=0.5, model_used="Video forensic heuristics v1")
-    uid = upload(auth, b"\x00" * 64, "a.mp4", "video/mp4")
+    uid = upload(auth, video_bytes(), "a.mp4", "video/mp4")
     client.post(f"/api/v1/detect/{uid}", headers=auth)
     text = _report(client, auth, uid)
     assert "Structure Entropy Score" in text and "Byte Windows Sampled" in text
@@ -97,7 +97,7 @@ def test_report_shows_the_provenance_conflict_for_a_real_verdict_on_an_ai_declar
 
 
 def test_audio_report_builds(client, scan, auth):
-    text = _report(client, auth, scan(auth, b"\x00" * 64, "a.wav", "audio/wav"))
+    text = _report(client, auth, scan(auth, wav_bytes(), "a.wav", "audio/wav"))
     assert "Audio Spoof Probability" in text
 
 

@@ -8,6 +8,7 @@ from app.core.config import settings
 from app.models.models import Upload, User
 from app.schemas.schemas import UploadOut
 from app.api.routes.auth import get_current_user
+from app.services.file_sniff import sniff_matches_declared_family
 
 router = APIRouter(prefix="/upload", tags=["Upload"])
 
@@ -35,6 +36,14 @@ async def upload_file(
     if size_kb == 0:
         raise HTTPException(400, "Uploaded file is empty.")
 
+    media_type = get_media_type(file.content_type)
+    if not sniff_matches_declared_family(content, media_type):
+        raise HTTPException(
+            415,
+            f"File content does not look like a {media_type} file. The declared type "
+            f"('{file.content_type}') doesn't match what's actually in the file.",
+        )
+
     upload_id = str(uuid.uuid4())
     ext = os.path.splitext(file.filename or "file")[1]
     path = os.path.join(settings.UPLOAD_DIR, f"{upload_id}{ext}")
@@ -46,7 +55,7 @@ async def upload_file(
     record = Upload(
         upload_id=upload_id,
         file_name=file.filename or f"{upload_id}{ext}",
-        media_type=get_media_type(file.content_type),
+        media_type=media_type,
         storage_url=path,
         file_size_kb=round(size_kb, 1),
         user_id=current_user.user_id,

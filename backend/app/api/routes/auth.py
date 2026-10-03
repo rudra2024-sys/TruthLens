@@ -12,6 +12,7 @@ from app.core.security import (
     decode_access_token,
 )
 from app.models.models import User
+from app.services.account_deletion import delete_account
 
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
@@ -170,3 +171,15 @@ async def me(
     current_user: User = Depends(get_current_user),
 ):
     return current_user
+
+
+@router.delete("/me", status_code=204)
+async def delete_me(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Permanently deletes the authenticated user's account and everything belonging to it: every upload's
+    stored file and generated PDF report, every detection result/analysis row, and all feedback -- see
+    app/services/account_deletion.py. Irreversible. The bearer token used to call this stops working
+    immediately afterward (get_current_user 401s once the user row is gone)."""
+    await delete_account(db, current_user)
