@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { motion, AnimatePresence, useAnimationControls } from 'framer-motion'
 import useReducedMotion from './hooks/useReducedMotion'
 import { Mail, Lock, AlertCircle } from 'lucide-react'
@@ -17,10 +17,20 @@ export default function Login() {
   const reduced = useReducedMotion()
   const navigate = useNavigate()
   const { refresh } = useAuth()
+  const [searchParams] = useSearchParams()
 
   useEffect(() => {
     controls.start({ opacity: 1, y: 0, transition: { duration: reduced ? 0.2 : 0.5, ease: [0.22, 1, 0.36, 1] } })
   }, [controls, reduced])
+
+  // Set by the axios response interceptor (api/client.js) when a 401 clears an existing session -
+  // shown once, on arrival, so "your session expired" is the message a kicked-out visitor actually
+  // sees instead of whatever request happened to trigger the redirect.
+  useEffect(() => {
+    if (searchParams.get('expired') === '1') {
+      setError('Your session expired. Please log in again.')
+    }
+  }, [searchParams])
 
   const handleSubmit = async (e) => {
     e.preventDefault()

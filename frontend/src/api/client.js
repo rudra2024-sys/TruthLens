@@ -49,14 +49,32 @@ api.interceptors.request.use(
 )
 
 /*
- * Automatically clear invalid authentication.
+ * Automatically clear invalid authentication, and send the visitor back to /login so an
+ * expired/invalid session surfaces as one clear message instead of a confusing 401 wherever it
+ * happened to occur (added 2026-10-03: a mid-scan 401 used to clear the token silently, and the
+ * *next* request in the same flow - e.g. a background-job poll - then went out with no
+ * Authorization header at all, surfacing FastAPI's generic "Not authenticated" deep inside an
+ * unrelated error state instead of a clear "your session expired" message where it's actionable).
+ *
+ * Excludes /auth/login and /auth/signup themselves: a 401 there means "wrong password", not "your
+ * session expired" - redirecting would blow away the error message those pages already show, and
+ * there's no session to lose in the first place.
  */
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
+    const url = error.config?.url || ''
+    const isAuthAttempt = url.includes('/auth/login') || url.includes('/auth/signup')
+
+    if (error.response?.status === 401 && !isAuthAttempt) {
+      const hadSession = !!localStorage.getItem('truthlens_token')
       localStorage.removeItem('truthlens_token')
       localStorage.removeItem('truthlens_user')
+
+      const onAuthPage = window.location.pathname.startsWith('/login') || window.location.pathname.startsWith('/signup')
+      if (hadSession && !onAuthPage) {
+        window.location.href = '/login?expired=1'
+      }
     }
 
     return Promise.reject(error)
