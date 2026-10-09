@@ -48,6 +48,7 @@ const Navigation = () => {
     { label: 'Home', link: '/', ariaLabel: 'Go to home' },
     ...(user ? [{ label: 'Dashboard', link: '/dashboard', ariaLabel: 'Go to dashboard' }] : []),
     { label: 'Verify', link: '/verify', ariaLabel: 'Go to verify' },
+    ...(user ? [{ label: 'Identity', link: '/identity', ariaLabel: 'Go to identity verification' }] : []),
     { label: 'History', link: '/history', ariaLabel: 'Go to history' },
     { label: 'Reports', link: '/reports', ariaLabel: 'Go to reports' },
     { label: 'About', link: '/about', ariaLabel: 'Go to about' },

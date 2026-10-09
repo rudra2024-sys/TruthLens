@@ -1,3 +1,4 @@
+import json
 import uuid
 from datetime import datetime
 from sqlalchemy import String, Float, Integer, ForeignKey, Boolean, UniqueConstraint
@@ -180,6 +181,112 @@ class Feedback(Base):
     allow_reuse: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at:  Mapped[str] = mapped_column(String, default=lambda: datetime.utcnow().isoformat())
     updated_at:  Mapped[str] = mapped_column(String, default=lambda: datetime.utcnow().isoformat())
+
+
+class FaceReference(Base):
+    """A user's enrolled reference face embedding for identity-match verification (added
+    2026-10-08). One active reference per user -- re-enrolling replaces it in place rather
+    than keeping history. embedding_json is a JSON-encoded list of 512 floats (facenet-pytorch's
+    InceptionResnetV1 output); plain Text is fine at this project's scale, no vector DB needed.
+    Never serialized back out over the API -- see schemas.py's IdentityReferenceOut.
+    """
+    __tablename__ = "face_references"
+
+    reference_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id:      Mapped[str] = mapped_column(String, ForeignKey("users.user_id"), unique=True, index=True)
+    upload_id:    Mapped[str] = mapped_column(String, ForeignKey("uploads.upload_id"))
+    embedding_json: Mapped[str] = mapped_column(String, nullable=False)
+    enrolled_at:  Mapped[str] = mapped_column(String, default=lambda: datetime.utcnow().isoformat())
+
+
+class IdentityMatchResult(Base):
+    """One identity-match check (a live-captured frame compared against a FaceReference)."""
+    __tablename__ = "identity_match_results"
+
+    match_id:         Mapped[str]  = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id:          Mapped[str]  = mapped_column(String, ForeignKey("users.user_id"), index=True)
+    reference_id:     Mapped[str]  = mapped_column(String, ForeignKey("face_references.reference_id"))
+    upload_id:        Mapped[str]  = mapped_column(String, ForeignKey("uploads.upload_id"))
+    similarity_score: Mapped[float] = mapped_column(Float)
+    verdict:          Mapped[str]  = mapped_column(String)   # MATCH | NO_MATCH | UNCERTAIN
+    checked_at:       Mapped[str]  = mapped_column(String, default=lambda: datetime.utcnow().isoformat())
+
+
+class MonitoringSession(Base):
+    """A bounded window of periodic identity/deepfake/presence checks against one enrolled
+    FaceReference (added 2026-10-09) -- the continuous-monitoring extension of one-shot
+    identity-match. ended_at is nullable: null means still active. No separate status column --
+    the single nullable timestamp is both simpler and can't drift out of sync with itself."""
+    __tablename__ = "monitoring_sessions"
+
+    session_id:   Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id:      Mapped[str] = mapped_column(String, ForeignKey("users.user_id"), index=True)
+    reference_id: Mapped[str] = mapped_column(String, ForeignKey("face_references.reference_id"))
+    started_at:   Mapped[str] = mapped_column(String, default=lambda: datetime.utcnow().isoformat())
+    ended_at:     Mapped[str | None] = mapped_column(String, nullable=True)
+
+
+class MonitoringCheck(Base):
+    """One periodic check within a MonitoringSession. Independent signals, any of which can flag
+    the check on their own -- flagged can be True even when identity_verdict is MATCH, which is
+    the point ("abnormal activity even if they have matched"). similarity_score/identity_verdict
+    are null when face_count != 1 (no single clear face to compare).
+
+    face_count's history: a first attempt at an exact count (OpenCV Haar cascade) was shipped
+    and then found broken by real-webcam testing (0 faces found on an obvious, well-lit single
+    face) and pulled back to a 0/1-only presence signal. Redone 2026-10-09 using MTCNN's own
+    .detect() (the detector actually used for the embedding, already loaded) with a confidence
+    filter + a hand-written IoU box-merge to deduplicate overlapping candidate boxes -- directly
+    validated against real photos (a composite of two different real people -> 2, single real
+    faces -> 1, faceless/covered-lens frames -> 0) before being trusted here. See
+    app/pipelines/identity/inference.py::IdentityPipeline.count_faces for the implementation and
+    full validation notes, and app/services/identity/monitoring.py's module docstring for the
+    complete history.
+    flag_reasons_json is a JSON list of strings, e.g. ["identity_mismatch","deepfake_signal"].
+    """
+    __tablename__ = "monitoring_checks"
+
+    check_id:          Mapped[str]   = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    session_id:        Mapped[str]   = mapped_column(String, ForeignKey("monitoring_sessions.session_id"), index=True)
+    upload_id:         Mapped[str]   = mapped_column(String, ForeignKey("uploads.upload_id"))
+    face_count:        Mapped[int]   = mapped_column(Integer)
+    similarity_score:  Mapped[float | None] = mapped_column(Float, nullable=True)
+    identity_verdict:  Mapped[str | None]   = mapped_column(String, nullable=True)
+    fake_probability:  Mapped[float] = mapped_column(Float)
+    deepfake_verdict:  Mapped[str]   = mapped_column(String)
+    flagged:           Mapped[bool]  = mapped_column(Boolean)
+    flag_reasons_json: Mapped[str]   = mapped_column(String, default="[]")
+    checked_at:        Mapped[str]   = mapped_column(String, default=lambda: datetime.utcnow().isoformat())
+
+    @property
+    def flag_reasons(self) -> list[str]:
+        """Decoded view of flag_reasons_json -- schemas.py's MonitoringCheckOut reads this
+        property (not the raw JSON string column) so the API returns a real list."""
+        return json.loads(self.flag_reasons_json)
+
+
+class MonitoringEvent(Base):
+    """A behavioral event within a MonitoringSession, separate from MonitoringCheck -- these
+    don't involve a camera frame or any model inference at all (added 2026-10-09): tab/window-
+    focus loss, a clipboard paste, a devtools-open heuristic firing, or the camera track ending/
+    muting unexpectedly. No `flagged` column -- an event existing at all IS the flag; the
+    frontend decides locally what's worth posting (e.g. only a tab-hidden spell longer than a
+    couple of seconds, not every incidental blur). event_type is one of: tab_hidden,
+    window_blurred, clipboard_paste, devtools_suspected, camera_interrupted. detail is a free-
+    form string (e.g. an away-duration in seconds for tab_hidden/window_blurred).
+
+    Honesty note (carried into the UI too): these only ever see activity inside the browser tab
+    this session is running in -- a second physical device, a different browser, or clipboard
+    activity in a separate exam-platform tab are all invisible to this signal. devtools_suspected
+    is a window-size heuristic, not a hard guarantee, and is bypassable by someone who knows it.
+    """
+    __tablename__ = "monitoring_events"
+
+    event_id:    Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    session_id:  Mapped[str] = mapped_column(String, ForeignKey("monitoring_sessions.session_id"), index=True)
+    event_type:  Mapped[str] = mapped_column(String)
+    detail:      Mapped[str | None] = mapped_column(String, nullable=True)
+    occurred_at: Mapped[str] = mapped_column(String, default=lambda: datetime.utcnow().isoformat())
 
 
 class AuditLogEntry(Base):

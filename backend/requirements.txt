@@ -24,3 +24,11 @@ transformers
 open_clip_torch
 c2pa-python
 PyWavelets
+# facenet-pytorch's own pins (numpy<2.0.0, torch<2.3.0, torchvision<0.18.0) predate this
+# project's actual stack (numpy 2.x, torch 2.8.0+cpu) and have no numpy wheel for this
+# Python version, forcing a from-source build that fails here (no GCC>=8.4). Confirmed by
+# direct testing that MTCNN + InceptionResnetV1 both work correctly against the newer
+# versions already pinned above -- install this ONE package with:
+#   pip install --no-deps facenet-pytorch==2.6.0
+# not a plain `pip install -r requirements.txt` pass over this line.
+facenet-pytorch==2.6.0

@@ -25,6 +25,17 @@ def _checkpoint_status(env_var: str, default: Path) -> dict:
     return {"path": str(path), "present": path.is_file()}
 
 
+def _identity_checkpoint_status(default_torch_home: Path) -> dict:
+    # Unlike the other models, InceptionResnetV1's pretrained weights are cached under a
+    # TORCH_HOME/checkpoints/ directory (a facenet-pytorch/torch.hub convention) rather than
+    # a single fixed file path -- see app/pipelines/identity/model.py's weights_present(),
+    # which this mirrors without importing torch (readiness checks stay import-light).
+    torch_home = Path(os.getenv("TORCH_HOME") or default_torch_home)
+    checkpoints_dir = torch_home / "checkpoints"
+    present = checkpoints_dir.is_dir() and any(checkpoints_dir.glob("*.pt"))
+    return {"path": str(checkpoints_dir), "present": present}
+
+
 def _default_checkpoints() -> dict[str, dict]:
     repo = BACKEND.parent
     return {
@@ -43,6 +54,9 @@ def _default_checkpoints() -> dict[str, dict]:
         "audio_model_v1": _checkpoint_status(
             "AUDIO_MODEL_V1_CHECKPOINT",
             BACKEND / "checkpoints" / "audio" / "wav2vec2_v9.pt",
+        ),
+        "identity_v1": _identity_checkpoint_status(
+            BACKEND / "checkpoints" / "identity" / "torch_cache",
         ),
     }
 

@@ -23,6 +23,8 @@ const About = lazy(() => import('./About'))
 const Login = lazy(() => import('./Login'))
 const SignUp = lazy(() => import('./SignUp'))
 const ReportDetail = lazy(() => import('./ReportDetail'))
+const IdentityMatch = lazy(() => import('./IdentityMatch'))
+const MonitoringSession = lazy(() => import('./MonitoringSession'))
 const NotFound = lazy(() => import('./NotFound'))
 
 const ProtectedRoute = ({ children }) => {
@@ -190,6 +192,22 @@ function AnimatedRoutes() {
         element={
           <ProtectedRoute>
             <Layout><PageTransition pathKey={p}><ReportDetail /></PageTransition></Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/identity"
+        element={
+          <ProtectedRoute>
+            <Layout><PageTransition pathKey={p}><IdentityMatch /></PageTransition></Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/identity/monitor"
+        element={
+          <ProtectedRoute>
+            <Layout><PageTransition pathKey={p}><MonitoringSession /></PageTransition></Layout>
           </ProtectedRoute>
         }
       />

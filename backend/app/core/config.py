@@ -18,6 +18,14 @@ class Settings(BaseSettings):
 
     FAKE_THRESHOLD: float = 0.5
 
+    # Cosine-similarity threshold for the identity-match feature (added 2026-10-08), banded
+    # +-0.1 the same way FAKE_THRESHOLD is banded +-0.2 elsewhere. This is a literature-typical
+    # default for facenet-pytorch's InceptionResnetV1(pretrained='vggface2') embeddings, NOT
+    # empirically validated against real face pairs in this environment -- there is no labeled
+    # same/different-person photo dataset here yet to calibrate it against (same honesty norm
+    # as AudioModelMetadata.validated elsewhere in this codebase).
+    IDENTITY_MATCH_THRESHOLD: float = 0.6
+
     # Comma-separated browser origins allowed to call the API. "*" (the default) keeps the historical open behaviour
     # for development; set it to your site's origin in production (see docs/DEPLOYMENT.md).
     CORS_ORIGINS: str = "*"

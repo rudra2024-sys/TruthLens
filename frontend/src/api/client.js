@@ -206,6 +206,111 @@ export const getProvenance = async (uploadId) => {
   }
 }
 
+// Identity-match: enroll a reference photo, then compare a later live-captured frame against
+// it. GET resolves to null when nothing has been enrolled yet, same convention as feedback.
+export const enrollIdentityReference = async (uploadId) => {
+  try {
+    return (await api.post('/identity/reference', { upload_id: uploadId })).data
+  } catch (err) {
+    throw new Error(friendlyError(err))
+  }
+}
+
+export const getIdentityReference = async () => {
+  try {
+    return (await api.get('/identity/reference')).data
+  } catch (err) {
+    throw new Error(friendlyError(err))
+  }
+}
+
+export const deleteIdentityReference = async () => {
+  try {
+    await api.delete('/identity/reference')
+  } catch (err) {
+    throw new Error(friendlyError(err))
+  }
+}
+
+export const matchIdentity = async (uploadId) => {
+  try {
+    return (await api.post('/identity/match', { upload_id: uploadId })).data
+  } catch (err) {
+    throw new Error(friendlyError(err))
+  }
+}
+
+// Continuous monitoring: periodic identity/deepfake/presence checks within a session, any of
+// which can flag independently -- including a check that flags even when identity matches.
+export const startMonitoringSession = async () => {
+  try {
+    return (await api.post('/identity/sessions')).data
+  } catch (err) {
+    throw new Error(friendlyError(err))
+  }
+}
+
+export const submitMonitoringCheck = async (sessionId, uploadId) => {
+  try {
+    return (await api.post(`/identity/sessions/${sessionId}/checks`, { upload_id: uploadId })).data
+  } catch (err) {
+    const e = new Error(friendlyError(err))
+    e.status = err?.response?.status
+    throw e
+  }
+}
+
+export const endMonitoringSession = async (sessionId) => {
+  try {
+    return (await api.post(`/identity/sessions/${sessionId}/end`)).data
+  } catch (err) {
+    throw new Error(friendlyError(err))
+  }
+}
+
+export const getMonitoringSession = async (sessionId) => {
+  try {
+    return (await api.get(`/identity/sessions/${sessionId}`)).data
+  } catch (err) {
+    throw new Error(friendlyError(err))
+  }
+}
+
+// Behavioral events (tab/window focus, clipboard, devtools heuristic, camera interruption) --
+// no camera frame or model involved, posted directly as they're detected client-side.
+export const postMonitoringEvent = async (sessionId, eventType, detail) => {
+  try {
+    return (await api.post(`/identity/sessions/${sessionId}/events`, { event_type: eventType, detail })).data
+  } catch (err) {
+    const e = new Error(friendlyError(err))
+    e.status = err?.response?.status
+    throw e
+  }
+}
+
+export const downloadSessionReport = async (sessionId) => {
+  try {
+    const response = await api.get(`/identity/sessions/${sessionId}/report`, {
+      responseType: 'blob',
+    })
+
+    const disposition = response.headers['content-disposition'] || ''
+    const match = disposition.match(/filename="?([^";]+)"?/)
+    const filename = match ? match[1] : `truthlens-session-report-${sessionId}.pdf`
+
+    const blobUrl = window.URL.createObjectURL(response.data)
+    const link = document.createElement('a')
+    link.href = blobUrl
+    link.download = filename
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    window.URL.revokeObjectURL(blobUrl)
+  } catch (err) {
+    throw new Error(friendlyError(err))
+  }
+}
+
 export const getUpload = async (uploadId) => {
   try {
     return await api.get(`/upload/${uploadId}`)

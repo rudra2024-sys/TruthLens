@@ -213,3 +213,81 @@ class FeedbackOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class UploadIdIn(BaseModel):
+    upload_id: str
+
+
+class IdentityReferenceOut(BaseModel):
+    reference_id: str
+    upload_id: str
+    enrolled_at: str
+    # Deliberately no embedding_json field here -- never serialize the raw embedding
+    # back out over the API.
+
+    class Config:
+        from_attributes = True
+
+
+class IdentityMatchOut(BaseModel):
+    match_id: str
+    reference_id: str
+    upload_id: str
+    similarity_score: float
+    verdict: str
+    checked_at: str
+
+    class Config:
+        from_attributes = True
+
+
+class MonitoringCheckOut(BaseModel):
+    check_id: str
+    session_id: str
+    upload_id: str
+    face_count: int
+    similarity_score: Optional[float] = None
+    identity_verdict: Optional[str] = None
+    fake_probability: float
+    deepfake_verdict: str
+    flagged: bool
+    flag_reasons: List[str]
+    checked_at: str
+
+    class Config:
+        from_attributes = True
+
+
+class MonitoringEventIn(BaseModel):
+    event_type: Literal["tab_hidden", "window_blurred", "clipboard_paste", "devtools_suspected", "camera_interrupted"]
+    detail: Optional[str] = Field(default=None, max_length=200)
+
+
+class MonitoringEventOut(BaseModel):
+    event_id: str
+    session_id: str
+    event_type: str
+    detail: Optional[str] = None
+    occurred_at: str
+
+    class Config:
+        from_attributes = True
+
+
+class MonitoringSessionOut(BaseModel):
+    session_id: str
+    reference_id: str
+    started_at: str
+    ended_at: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class MonitoringSessionDetailOut(MonitoringSessionOut):
+    checks: List[MonitoringCheckOut] = []
+    events: List[MonitoringEventOut] = []
+
+    class Config:
+        from_attributes = True
