@@ -30,6 +30,9 @@ async def get_db():
 # instead of introducing Alembic for a couple of columns. Each statement is wrapped so a
 # "duplicate column" error (already applied on a previous startup) is silently skipped.
 _LIGHT_MIGRATIONS = [
+    # Added to ImageAnalysis with the CLIP ensemble, before this list existed -- DBs created earlier lack them.
+    "ALTER TABLE image_analysis ADD COLUMN convnext_fake_probability FLOAT",
+    "ALTER TABLE image_analysis ADD COLUMN clip_fake_probability FLOAT",
     "ALTER TABLE audio_analysis ADD COLUMN duration_s FLOAT",
     "ALTER TABLE audio_analysis ADD COLUMN windows_analyzed INTEGER",
     "ALTER TABLE video_analysis ADD COLUMN frames_with_face INTEGER",
