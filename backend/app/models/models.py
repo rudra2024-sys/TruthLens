@@ -224,6 +224,12 @@ class MonitoringSession(Base):
     reference_id: Mapped[str] = mapped_column(String, ForeignKey("face_references.reference_id"))
     started_at:   Mapped[str] = mapped_column(String, default=lambda: datetime.utcnow().isoformat())
     ended_at:     Mapped[str | None] = mapped_column(String, nullable=True)
+    # Set once, from the session's first face-detected check -- the "looking at the screen"
+    # reference point later checks' yaw/pitch are compared against (added 2026-10-09, item 10).
+    # Self-calibrating per person/camera-angle rather than a fixed universal angle threshold,
+    # since there's no labeled head-pose dataset here to calibrate a universal one against.
+    baseline_yaw:   Mapped[float | None] = mapped_column(Float, nullable=True)
+    baseline_pitch: Mapped[float | None] = mapped_column(Float, nullable=True)
 
 
 class MonitoringCheck(Base):
@@ -258,11 +264,56 @@ class MonitoringCheck(Base):
     flag_reasons_json: Mapped[str]   = mapped_column(String, default="[]")
     checked_at:        Mapped[str]   = mapped_column(String, default=lambda: datetime.utcnow().isoformat())
 
+    # Items 7-10 (added 2026-10-09). All nullable -- only populated when the relevant signal
+    # could actually be computed for this check (e.g. yaw/pitch need exactly one face found;
+    # speech_ratio/object detections need the frontend to have sent that frame/clip at all).
+    yaw_deg:        Mapped[float | None] = mapped_column(Float, nullable=True)
+    pitch_deg:      Mapped[float | None] = mapped_column(Float, nullable=True)
+    # Mouth-CORNER distance (item 9), not true vertical mouth-aperture -- MTCNN's 5-point
+    # landmarks have no top/bottom-lip point, confirmed during planning. A weaker proxy for
+    # talking than real lip-sync work would use; informational only, never auto-flagged (see
+    # monitoring.py's module docstring and session_report.py's lip-sync section).
+    mouth_width_px: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # Fraction of an accompanying ~3s audio clip classified as speech by short-term-energy VAD
+    # (item 7) -- tells you speech-level audio activity happened, NOT whose voice it was. See
+    # audio_vad.py's module docstring.
+    speech_ratio:   Mapped[float | None] = mapped_column(Float, nullable=True)
+    # JSON list of COCO class names found in this frame, filtered to ["cell phone", "book"]
+    # only (item 8) -- see pipelines/objects/inference.py. Decoded via the object_detections
+    # property below, same convention as flag_reasons.
+    object_detections_json: Mapped[str] = mapped_column(String, default="[]")
+
+    # Live face-overlay visualization (added 2026-10-10, follow-up item 3): the single kept
+    # face's MTCNN box ([x1,y1,x2,y2]) and 5-point landmarks ([[x,y],...]) in the captured
+    # frame's own pixel space, plus that frame's dimensions so the frontend can scale them onto
+    # the displayed video element. Null whenever face_count != 1 -- same condition that already
+    # gates yaw_deg/mouth_width_px above. Genuine per-check MTCNN output, not a client-side
+    # approximation -- see inference.py::detect_faces's docstring.
+    face_box_json:  Mapped[str | None] = mapped_column(String, nullable=True)
+    landmarks_json: Mapped[str | None] = mapped_column(String, nullable=True)
+    image_width:    Mapped[int | None] = mapped_column(Integer, nullable=True)
+    image_height:   Mapped[int | None] = mapped_column(Integer, nullable=True)
+
     @property
     def flag_reasons(self) -> list[str]:
         """Decoded view of flag_reasons_json -- schemas.py's MonitoringCheckOut reads this
         property (not the raw JSON string column) so the API returns a real list."""
         return json.loads(self.flag_reasons_json)
+
+    @property
+    def object_detections(self) -> list[str]:
+        """Decoded view of object_detections_json, same convention as flag_reasons."""
+        return json.loads(self.object_detections_json)
+
+    @property
+    def face_box(self) -> list[float] | None:
+        """Decoded view of face_box_json, same convention as flag_reasons."""
+        return json.loads(self.face_box_json) if self.face_box_json is not None else None
+
+    @property
+    def landmarks(self) -> list[list[float]] | None:
+        """Decoded view of landmarks_json, same convention as flag_reasons."""
+        return json.loads(self.landmarks_json) if self.landmarks_json is not None else None
 
 
 class MonitoringEvent(Base):

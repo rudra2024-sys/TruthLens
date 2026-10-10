@@ -58,6 +58,10 @@ def _default_checkpoints() -> dict[str, dict]:
         "identity_v1": _identity_checkpoint_status(
             BACKEND / "checkpoints" / "identity" / "torch_cache",
         ),
+        "object_detection_v1": _checkpoint_status(
+            "OBJECT_MODEL_CHECKPOINT",
+            BACKEND / "checkpoints" / "objects" / "yolov8n.onnx",
+        ),
     }
 
 

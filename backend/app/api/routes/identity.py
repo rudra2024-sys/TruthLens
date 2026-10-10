@@ -13,6 +13,7 @@ from app.models.models import FaceReference, MonitoringCheck, MonitoringEvent, M
 from app.schemas.schemas import (
     IdentityMatchOut,
     IdentityReferenceOut,
+    MonitoringCheckIn,
     MonitoringCheckOut,
     MonitoringEventIn,
     MonitoringEventOut,
@@ -139,12 +140,13 @@ async def post_session(
 @router.post("/sessions/{session_id}/checks", response_model=MonitoringCheckOut, status_code=201)
 async def post_session_check(
     session_id: str,
-    body: UploadIdIn,
+    body: MonitoringCheckIn,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Run one periodic check (identity drift + deepfake signal + presence) against an
-    already-uploaded live-captured frame. 400 if the session has already ended."""
+    """Run one periodic check (identity drift + deepfake signal + presence + gaze/objects, and
+    optionally speech/talking if an audio clip is included) against an already-uploaded
+    live-captured frame. 400 if the session has already ended."""
     session = await _owned_session(db, session_id, current_user)
     if session.ended_at is not None:
         raise HTTPException(400, "This monitoring session has already ended.")
@@ -156,8 +158,13 @@ async def post_session_check(
     upload = await _owned_upload(db, body.upload_id, current_user)
     if upload.media_type != "image":
         raise HTTPException(400, "Live capture must be an image.")
+    audio_upload = None
+    if body.audio_upload_id is not None:
+        audio_upload = await _owned_upload(db, body.audio_upload_id, current_user)
+        if audio_upload.media_type != "audio":
+            raise HTTPException(400, "Audio clip must be an audio file.")
     try:
-        check = await run_check(session, reference, upload, db)
+        check = await run_check(session, reference, upload, db, audio_upload=audio_upload)
     except UnprocessableMediaError as e:
         raise HTTPException(422, str(e))
     return check

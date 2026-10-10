@@ -34,6 +34,17 @@ _LIGHT_MIGRATIONS = [
     "ALTER TABLE audio_analysis ADD COLUMN windows_analyzed INTEGER",
     "ALTER TABLE video_analysis ADD COLUMN frames_with_face INTEGER",
     "ALTER TABLE detection_results ADD COLUMN calibrated_confidence FLOAT",
+    "ALTER TABLE monitoring_checks ADD COLUMN yaw_deg FLOAT",
+    "ALTER TABLE monitoring_checks ADD COLUMN pitch_deg FLOAT",
+    "ALTER TABLE monitoring_checks ADD COLUMN mouth_width_px FLOAT",
+    "ALTER TABLE monitoring_checks ADD COLUMN speech_ratio FLOAT",
+    "ALTER TABLE monitoring_checks ADD COLUMN object_detections_json TEXT",
+    "ALTER TABLE monitoring_sessions ADD COLUMN baseline_yaw FLOAT",
+    "ALTER TABLE monitoring_sessions ADD COLUMN baseline_pitch FLOAT",
+    "ALTER TABLE monitoring_checks ADD COLUMN face_box_json TEXT",
+    "ALTER TABLE monitoring_checks ADD COLUMN landmarks_json TEXT",
+    "ALTER TABLE monitoring_checks ADD COLUMN image_width INTEGER",
+    "ALTER TABLE monitoring_checks ADD COLUMN image_height INTEGER",
 ]
 
 

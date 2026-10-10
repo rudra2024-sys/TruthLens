@@ -31,15 +31,17 @@ class IdentityPipeline:
     def __init__(self):
         self.mtcnn, self.resnet, self.device = load_models()
 
-    def count_faces(self, image_path: str, prob_thresh: float = 0.95, iou_thresh: float = 0.3) -> int:
-        """How many distinct faces are in the image. Second attempt at this signal -- the first
-        (an OpenCV Haar cascade, see services/identity/monitoring.py's module docstring) was
-        shipped and then found broken by real-webcam testing: 0 faces found on an obvious,
-        well-lit single face. This version reuses the same MTCNN instance embed() already uses
-        (no new model) via its lower-level .detect(), which returns every raw candidate box --
-        including many overlapping duplicates of the same face (confirmed directly: 7 boxes for
-        1 real face before any filtering). A confidence filter (prob_thresh) plus a greedy IoU
-        merge (cluster boxes whose IoU with an existing cluster's first box exceeds iou_thresh)
+    def detect_faces(self, image_path: str, prob_thresh: float = 0.95, iou_thresh: float = 0.3) -> dict:
+        """How many distinct faces are in the image, plus the 5-point landmarks of the one face
+        (only when there's exactly one -- ambiguous which face to report pose/mouth for
+        otherwise). Second attempt at the count specifically -- the first (an OpenCV Haar
+        cascade, see services/identity/monitoring.py's module docstring) was shipped and then
+        found broken by real-webcam testing: 0 faces found on an obvious, well-lit single face.
+        This version reuses the same MTCNN instance embed() already uses (no new model) via its
+        lower-level .detect(), which returns every raw candidate box -- including many
+        overlapping duplicates of the same face (confirmed directly: 7 boxes for 1 real face
+        before any filtering). A confidence filter (prob_thresh) plus a greedy IoU merge
+        (cluster boxes whose IoU with an existing cluster's first box exceeds iou_thresh)
         collapses those duplicates into a real count.
 
         Validated directly (2026-10-09, not just assumed) against real images: a composite of
@@ -48,22 +50,34 @@ class IdentityPipeline:
         both confirmed genuinely faceless by eye) -> 1/0/0; a solid-color synthetic image -> 0.
         Not run through this project's larger eval harnesses (the ~300-image kind other
         detectors here get) -- a real but smaller-scale validation than that, stated plainly.
+
+        Returns {"count": int, "landmarks": (5,2) array | None, "box": (4,) array | None,
+        "image_size": (width, height)}. image_size is always returned (even with 0 faces)
+        since callers may want it regardless. "box" (the kept face's [x1, y1, x2, y2], same
+        pixel space as image_size) is added alongside landmarks purely for the monitoring
+        session's live face-overlay visualization (section 3 item 3 of the FYP plan) -- it was
+        already computed by this same .detect() call and simply discarded before, no new
+        inference cost.
         """
         with Image.open(image_path) as image:
             image = image.convert("RGB")
-            boxes, probs = self.mtcnn.detect(image)
+            image_size = image.size
+            boxes, probs, landmarks = self.mtcnn.detect(image, landmarks=True)
 
         if boxes is None:
-            return 0
+            return {"count": 0, "landmarks": None, "box": None, "image_size": image_size}
 
-        kept = [box for box, prob in zip(boxes, probs) if prob is not None and prob >= prob_thresh]
+        kept = [i for i, prob in enumerate(probs) if prob is not None and prob >= prob_thresh]
 
-        clusters: list = []
-        for box in kept:
-            if not any(_iou(box, rep) > iou_thresh for rep in clusters):
-                clusters.append(box)
+        clusters: list[int] = []
+        for i in kept:
+            if not any(_iou(boxes[i], boxes[j]) > iou_thresh for j in clusters):
+                clusters.append(i)
 
-        return len(clusters)
+        count = len(clusters)
+        face_landmarks = landmarks[clusters[0]] if count == 1 else None
+        face_box = boxes[clusters[0]] if count == 1 else None
+        return {"count": count, "landmarks": face_landmarks, "box": face_box, "image_size": image_size}
 
     def embed(self, image_path: str) -> list[float]:
         with Image.open(image_path) as image:

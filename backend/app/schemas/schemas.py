@@ -254,9 +254,26 @@ class MonitoringCheckOut(BaseModel):
     flagged: bool
     flag_reasons: List[str]
     checked_at: str
+    yaw_deg: Optional[float] = None
+    pitch_deg: Optional[float] = None
+    mouth_width_px: Optional[float] = None
+    speech_ratio: Optional[float] = None
+    object_detections: List[str] = []
+    face_box: Optional[List[float]] = None
+    landmarks: Optional[List[List[float]]] = None
+    image_width: Optional[int] = None
+    image_height: Optional[int] = None
 
     class Config:
         from_attributes = True
+
+
+class MonitoringCheckIn(BaseModel):
+    upload_id: str
+    # Optional ~3s audio clip, already uploaded via the generic /upload endpoint, for the
+    # speech/talking-detection signal (item 7). Omitted entirely on browsers/sessions where
+    # microphone access wasn't granted -- the check still runs, just without that signal.
+    audio_upload_id: Optional[str] = None
 
 
 class MonitoringEventIn(BaseModel):

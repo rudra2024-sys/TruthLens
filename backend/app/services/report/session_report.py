@@ -21,6 +21,14 @@ from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, Tabl
 
 from app.core.config import settings
 from app.models.models import MonitoringCheck, MonitoringEvent, MonitoringSession
+from app.services.report.pdf_theme import (
+    footer_block,
+    info_card,
+    report_header,
+    section_heading,
+    tl_styles,
+    verdict_card,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +47,53 @@ REASON_LABELS = {
     "identity_uncertain": "Identity uncertain",
     "deepfake_signal": "Possible AI manipulation",
     "deepfake_uncertain": "Manipulation uncertain",
+    "looking_away": "Looking away",
+    "talking_detected": "Talking detected",
+    "object_detected": "Unauthorized object detected",
 }
+
+# How much a check's mouth-corner width has to change (as a fraction of the session's own
+# average) to be called "changed" rather than "flat" in the lip-sync section below -- a
+# placeholder, same honesty tier as every other threshold introduced in this feature.
+_MOUTH_WIDTH_CHANGE_FRACTION = 0.08
+
+
+def _top_reason(checks: list[MonitoringCheck]) -> str | None:
+    counts: Counter = Counter()
+    for check in checks:
+        for reason in check.flag_reasons:
+            counts[reason] += 1
+    if not counts:
+        return None
+    reason, _ = counts.most_common(1)[0]
+    return REASON_LABELS.get(reason, reason)
+
+
+def _plain_summary_sentence(session: MonitoringSession, checks: list[MonitoringCheck], events: list[MonitoringEvent]) -> str:
+    """One jargon-free sentence restating what this session's numbers mean, for a reader (e.g.
+    an exam proctor) who isn't going to parse a flag-breakdown table -- a plain restatement of
+    figures computed elsewhere in this report, never a new claim (see pdf_theme.py)."""
+    flagged = sum(1 for c in checks if c.flagged)
+    total = len(checks)
+    in_progress = session.ended_at is None
+    if total == 0:
+        return "No automated checks have been recorded for this session yet."
+    if flagged == 0 and not events:
+        state = "so far" if in_progress else "during this session"
+        return f"Every automated check came back clean {state} -- nothing was flagged."
+    top = _top_reason(checks)
+    bits = [f"{flagged} of {total} automated checks were flagged"]
+    if events:
+        was_were = "was" if len(events) == 1 else "were"
+        plural_s = "" if len(events) == 1 else "s"
+        bits.append(f"{len(events)} behavioral event{plural_s} {was_were} recorded "
+                     "(such as switching tabs or opening developer tools)")
+    sentence = " and ".join(bits) + "."
+    if in_progress:
+        sentence += " This session is still in progress."
+    if top:
+        sentence += f" The most common reason was “{top}”."
+    return sentence
 
 
 def _parse_iso(ts: str | None):
@@ -100,6 +154,49 @@ def _event_summary_table(events: list[MonitoringEvent], small) -> list:
     return out
 
 
+def _lip_sync_section(checks: list[MonitoringCheck], small) -> list:
+    """Informational only -- never a flag (see monitoring.py's module docstring for why:
+    MTCNN's 5-point landmarks give mouth-corner WIDTH, not true vertical mouth-aperture, a much
+    weaker proxy for talking than real lip-sync work would use). Shown here, for a human to
+    weigh, as a table of consecutive checks that both have speech_ratio and mouth_width_px:
+    whether the mouth width changed meaningfully between them while speech was detected, or
+    stayed flat -- a flat mouth width during detected speech is the pattern worth a human's
+    attention (e.g. a pre-recorded audio clip playing with no one visibly talking), not
+    something this code decides on its own.
+    """
+    usable = [c for c in checks if c.speech_ratio is not None and c.mouth_width_px is not None]
+    caveat = Paragraph(
+        "Informational only, not a flag. Mouth-corner WIDTH is a weak proxy for talking -- "
+        "MTCNN's landmarks have no top/bottom-lip point for true mouth-opening measurement. "
+        "Not validated against real talking footage. A human should judge this, not the system.",
+        small,
+    )
+    if len(usable) < 2:
+        return [caveat, Spacer(1, 0.15 * cm),
+                Paragraph("Not enough checks with both audio and a detected face to compare.", small)]
+
+    avg_width = sum(c.mouth_width_px for c in usable) / len(usable)
+    rows = [["Time", "Speech Ratio", "Mouth Width (px)", "Change"]]
+    style_commands = [
+        ("FONTSIZE", (0, 0), (-1, -1), 8),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.grey),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+    ]
+    for i in range(1, len(usable)):
+        prev, cur = usable[i - 1], usable[i]
+        delta = cur.mouth_width_px - prev.mouth_width_px
+        changed = abs(delta) >= _MOUTH_WIDTH_CHANGE_FRACTION * avg_width
+        note = "changed" if changed else "flat"
+        if cur.speech_ratio >= settings.TALKING_SPEECH_RATIO_THRESHOLD and not changed:
+            note = "flat while speech detected"
+        time_label = cur.checked_at.split("T")[-1].split(".")[0] if "T" in cur.checked_at else cur.checked_at
+        rows.append([time_label, f"{cur.speech_ratio:.2f}", f"{cur.mouth_width_px:.1f}", note])
+
+    table = Table(rows, colWidths=[2.5 * cm, 3 * cm, 3.5 * cm, 7 * cm])
+    table.setStyle(TableStyle(style_commands))
+    return [caveat, Spacer(1, 0.2 * cm), table]
+
+
 def _timeline_rows(checks: list[MonitoringCheck], events: list[MonitoringEvent]) -> list[tuple]:
     """Merges checks and events into one chronological list of (timestamp, is_flagged, label)."""
     rows = []
@@ -154,74 +251,71 @@ def generate_session_report(
 
     doc = SimpleDocTemplate(path, pagesize=A4, topMargin=2 * cm, bottomMargin=2 * cm)
     styles = getSampleStyleSheet()
-    title_style = ParagraphStyle("TLTitle", parent=styles["Title"], textColor=colors.HexColor("#0F6B66"))
+    tl = tl_styles()
     small = ParagraphStyle("sess_small", parent=styles["Normal"], fontSize=9, textColor=colors.grey)
 
     flagged_checks = sum(1 for c in checks if c.flagged)
+    status_label = "CLEAN" if flagged_checks == 0 and not events else "FLAGGED"
+    status_headline = "No flagged activity." if status_label == "CLEAN" else "Flagged activity found -- for human review."
 
-    elements = [
-        Paragraph("TruthLens Monitoring Session Report", title_style),
-        Spacer(1, 0.5 * cm),
-    ]
-
-    meta_table = Table(
-        [
-            ["Session ID", session.session_id],
-            ["Started At", session.started_at],
-            ["Ended At", session.ended_at or "Still active"],
-            ["Duration", _duration_label(session)],
-            ["Total Checks", str(len(checks))],
-            ["Flagged Checks", f"{flagged_checks} / {len(checks)}"],
-            ["Behavioral Events", str(len(events))],
-        ],
-        colWidths=[5 * cm, 10 * cm],
+    elements = report_header(
+        tl, "Monitoring Session Report",
+        f"Session: {session.session_id} &nbsp;&middot;&nbsp; Started {session.started_at}",
     )
-    meta_table.setStyle(TableStyle([
-        ("FONTSIZE", (0, 0), (-1, -1), 9),
-        ("TEXTCOLOR", (0, 0), (0, -1), colors.grey),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-    ]))
-    elements += [meta_table, Spacer(1, 0.8 * cm)]
+
+    elements += verdict_card(
+        tl, status_label, status_headline,
+        _plain_summary_sentence(session, checks, events) +
+        "<br/><br/>Nothing on this page is proof of misconduct on its own -- it is a record for a human to review.",
+    )
+
+    elements += info_card([
+        ("Started At", session.started_at),
+        ("Ended At", session.ended_at or "Still active"),
+        ("Duration", _duration_label(session)),
+        ("Total Checks", str(len(checks))),
+        ("Flagged Checks", f"{flagged_checks} / {len(checks)}"),
+        ("Behavioral Events", str(len(events))),
+    ])
+    elements.append(Spacer(1, 0.6 * cm))
 
     try:
-        elements.append(Paragraph("Flag Breakdown", styles["Heading3"]))
+        elements += section_heading(tl, "Flag Breakdown")
         elements += _flag_breakdown_table(checks, small)
         elements.append(Spacer(1, 0.6 * cm))
     except Exception:
         logger.exception("Flag breakdown section skipped (session_id=%s)", session.session_id)
 
     try:
-        elements.append(Paragraph("Behavioral Events", styles["Heading3"]))
+        elements += section_heading(tl, "Behavioral Events")
         elements += _event_summary_table(events, small)
         elements.append(Spacer(1, 0.6 * cm))
     except Exception:
         logger.exception("Event summary section skipped (session_id=%s)", session.session_id)
 
     try:
-        elements.append(Paragraph("Timeline", styles["Heading3"]))
-        elements.append(Spacer(1, 0.2 * cm))
+        elements += section_heading(tl, "Lip-Sync Signal (informational, not a flag)")
+        elements += _lip_sync_section(checks, small)
+        elements.append(Spacer(1, 0.6 * cm))
+    except Exception:
+        logger.exception("Lip-sync section skipped (session_id=%s)", session.session_id)
+
+    try:
+        elements += section_heading(tl, "Timeline")
         elements += _timeline_table(checks, events, small)
     except Exception:
         logger.exception("Timeline section skipped (session_id=%s)", session.session_id)
 
-    elements += [
-        Spacer(1, 1 * cm),
-        Paragraph(
-            "TruthLens Model Information",
-            ParagraphStyle("stubTitle", parent=styles["Normal"], fontSize=9,
-                           textColor=colors.HexColor("#B45309"), spaceAfter=4),
-        ),
-        Paragraph(
-            "Camera checks compare a live-captured frame against the enrolled reference photo "
-            "(identity match), run the same ConvNeXt-Tiny + CLIP deepfake ensemble used "
-            "elsewhere in TruthLens, and count faces in frame. Behavioral events (tab/window "
-            "focus, clipboard, devtools, camera interruption) only ever see activity inside the "
-            "browser tab this session ran in -- a second device, a different browser, or "
-            "activity in a separate tab are invisible to them. Nothing here is proof of "
-            "misconduct on its own; it is a record for human review.",
-            ParagraphStyle("footer", parent=styles["Normal"], fontSize=8, textColor=colors.grey),
-        ),
-    ]
+    elements += footer_block(
+        tl, "TruthLens Model Information",
+        "Camera checks compare a live-captured frame against the enrolled reference photo "
+        "(identity match), run the same ConvNeXt-Tiny + CLIP deepfake ensemble used "
+        "elsewhere in TruthLens, and count faces in frame. Behavioral events (tab/window "
+        "focus, clipboard, devtools, camera interruption) only ever see activity inside the "
+        "browser tab this session ran in -- a second device, a different browser, or "
+        "activity in a separate tab are invisible to them. Nothing here is proof of "
+        "misconduct on its own; it is a record for human review.",
+    )
 
     doc.build(elements)
     return path

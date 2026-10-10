@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Download, ShieldAlert, ShieldCheck } from 'lucide-react'
+import FaceOverlay from './components/FaceOverlay'
 import {
   downloadSessionReport,
   endMonitoringSession,
@@ -10,6 +11,12 @@ import {
   submitMonitoringCheck,
   uploadMedia,
 } from './api/client'
+
+const ArrowRight = () => (
+  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+    <path d="M3 8H13" /><path d="M9 4L13 8L9 12" />
+  </svg>
+)
 
 const NORMAL_INTERVAL_MS = 20000
 const HEIGHTENED_INTERVAL_MS = 5000
@@ -28,7 +35,35 @@ const REASON_LABELS = {
   identity_uncertain: 'Identity uncertain',
   deepfake_signal: 'Possible AI manipulation',
   deepfake_uncertain: 'Manipulation uncertain',
+  looking_away: 'Looking away',
+  talking_detected: 'Talking detected',
+  object_detected: 'Unauthorized object detected',
 }
+
+const AUDIO_CLIP_MS = 3000
+
+const canvasToBlob = (canvas) => new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.92))
+
+// Records a short clip from the session's own audio track (item 7). Resolves null (not an
+// error) if there's no audio track, the track died, or MediaRecorder can't handle the mimeType
+// -- a missing audio signal should never block the camera check itself.
+const recordAudioClip = (stream, durationMs = AUDIO_CLIP_MS) => new Promise((resolve) => {
+  const audioTrack = stream?.getAudioTracks()[0]
+  if (!audioTrack || audioTrack.readyState !== 'live') { resolve(null); return }
+  let recorder
+  try {
+    recorder = new MediaRecorder(new MediaStream([audioTrack]), { mimeType: 'audio/webm' })
+  } catch {
+    resolve(null)
+    return
+  }
+  const chunks = []
+  recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data) }
+  recorder.onstop = () => resolve(chunks.length ? new Blob(chunks, { type: 'audio/webm' }) : null)
+  recorder.onerror = () => resolve(null)
+  recorder.start()
+  setTimeout(() => { if (recorder.state !== 'inactive') recorder.stop() }, durationMs)
+})
 
 const EVENT_LABELS = {
   tab_hidden: 'Tab hidden',
@@ -53,6 +88,7 @@ function CheckRow({ check }) {
             {check.similarity_score != null ? `similarity ${Math.round(check.similarity_score * 100)}%` : '—'}
             {' · '}
             fake {Math.round(check.fake_probability * 100)}%
+            {check.object_detections?.length > 0 ? ` · ${check.object_detections.join(', ')} detected` : ''}
           </span>
         </div>
         {check.flagged ? (
@@ -202,33 +238,46 @@ export default function MonitoringSession() {
     }
   }, [session, postEvent])
 
-  const runCheck = useCallback(() => {
+  const runCheck = useCallback(async () => {
     const video = videoRef.current
     const activeSession = sessionRef.current
-    const track = streamRef.current?.getVideoTracks()[0]
+    const stream = streamRef.current
+    const track = stream?.getVideoTracks()[0]
     if (!video || !video.videoWidth || !activeSession || !track || track.readyState !== 'live') return
+
     const canvas = document.createElement('canvas')
     canvas.width = video.videoWidth
     canvas.height = video.videoHeight
     canvas.getContext('2d').drawImage(video, 0, 0)
-    canvas.toBlob(async (blob) => {
-      if (!blob) return
-      try {
-        const file = new File([blob], 'monitor-frame.jpg', { type: 'image/jpeg' })
-        const uploadRes = await uploadMedia(file)
-        const check = await submitMonitoringCheck(activeSession.session_id, uploadRes.data.upload_id)
-        setChecks((prev) => [check, ...prev])
-        if (check.flagged) lastFlagAtRef.current = Date.now()
-      } catch (err) {
-        if (err.status === 400) {
-          // The session ended server-side (e.g. a previous /end call) -- stop quietly.
-          stopScheduledCheck()
-          stopStream()
-          return
-        }
-        setError(err.message)
+
+    // Captured in parallel -- the ~3s audio clip shouldn't add its own latency on top of the
+    // (near-instant) frame grab.
+    const [videoBlob, audioBlob] = await Promise.all([canvasToBlob(canvas), recordAudioClip(stream)])
+    if (!videoBlob) return
+
+    try {
+      const file = new File([videoBlob], 'monitor-frame.jpg', { type: 'image/jpeg' })
+      const uploadRes = await uploadMedia(file)
+
+      let audioUploadId
+      if (audioBlob) {
+        const audioFile = new File([audioBlob], 'monitor-audio.webm', { type: 'audio/webm' })
+        const audioUploadRes = await uploadMedia(audioFile)
+        audioUploadId = audioUploadRes.data.upload_id
       }
-    }, 'image/jpeg', 0.92)
+
+      const check = await submitMonitoringCheck(activeSession.session_id, uploadRes.data.upload_id, audioUploadId)
+      setChecks((prev) => [check, ...prev])
+      if (check.flagged) lastFlagAtRef.current = Date.now()
+    } catch (err) {
+      if (err.status === 400) {
+        // The session ended server-side (e.g. a previous /end call) -- stop quietly.
+        stopScheduledCheck()
+        stopStream()
+        return
+      }
+      setError(err.message)
+    }
   }, [])
 
   // Self-rescheduling instead of a fixed interval: right after a flagged check (or a flagged
@@ -258,7 +307,7 @@ export default function MonitoringSession() {
     setStarting(true)
     setError(null)
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } })
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: true })
       streamRef.current = stream
       deliberateStopRef.current = false
       // Per spec, track.stop() called by the page itself never fires 'ended' -- it's reserved
@@ -308,6 +357,7 @@ export default function MonitoringSession() {
     }
   }
 
+  const lastCheck = checks[0] // checks are prepended, so the first entry is the most recent
   const flaggedCount = checks.filter((c) => c.flagged).length + events.length // every event is inherently a flag
   const timeline = [
     ...checks.map((c) => ({ kind: 'check', ts: c.checked_at, key: `check-${c.check_id}`, data: c })),
@@ -327,9 +377,11 @@ export default function MonitoringSession() {
               Stay under <span className="italic text-brass">watch.</span>
             </h1>
             <p className="text-[16px] text-bone-dim max-w-[560px] mx-auto">
-              Checks your face, identity match, and manipulation signal — every 20s normally,
-              every 5s for a minute after anything looks off. Also watches for tab switches,
-              clipboard pastes and devtools. All of this only sees activity in this browser tab.
+              Checks your face, identity match, manipulation signal, gaze, and a short audio
+              clip for talking — every 20s normally, every 5s for a minute after anything looks
+              off. Also watches for tab switches, clipboard pastes, devtools, and phones/books in
+              frame. All of this only sees activity in this browser tab — requires camera and
+              microphone access.
             </p>
           </div>
 
@@ -346,7 +398,22 @@ export default function MonitoringSession() {
             {reference && (
               <>
                 <div className="relative w-full max-w-[640px] mx-auto aspect-[4/3] bg-ground border border-line rounded-[4px] overflow-hidden mb-6">
-                  <video ref={videoRef} muted playsInline className="w-full h-full object-cover scale-x-[-1]" />
+                  {/* Mirrored together so the overlay's coordinates (in the camera's own,
+                      unmirrored pixel space) line up with the mirrored on-screen preview --
+                      mirroring only the <video> via CSS would leave the net flipped relative
+                      to the face. */}
+                  <div className="relative w-full h-full scale-x-[-1]">
+                    <video ref={videoRef} muted playsInline className="w-full h-full object-cover" />
+                    {session && lastCheck?.image_width && (
+                      <FaceOverlay
+                        box={lastCheck.face_box}
+                        landmarks={lastCheck.landmarks}
+                        imageWidth={lastCheck.image_width}
+                        imageHeight={lastCheck.image_height}
+                        identityVerdict={lastCheck.identity_verdict}
+                      />
+                    )}
+                  </div>
                   {!session && (
                     <div className="absolute inset-0 flex items-center justify-center text-bone-faint text-[13px]">
                       Camera off
@@ -360,9 +427,10 @@ export default function MonitoringSession() {
                       type="button"
                       disabled={starting}
                       onClick={startSession}
-                      className="bg-brass text-ground px-6 py-3 rounded-[4px] text-[12px] font-medium tracking-[0.08em] uppercase btn-lift disabled:opacity-50"
+                      className="group flex items-center gap-3 bg-brass text-ground px-8 py-4 rounded-[4px] text-[13px] font-medium tracking-[0.08em] uppercase btn-lift disabled:opacity-50"
                     >
                       {starting ? 'Starting…' : 'Start Session'}
+                      <span className="transition-transform duration-300 group-hover:translate-x-1"><ArrowRight /></span>
                     </button>
                   ) : (
                     <button

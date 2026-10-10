@@ -56,6 +56,13 @@ def _is_audio(head: bytes) -> bool:
         return True
     if len(head) >= 2 and head[0] == 0xFF and (head[1] & 0xE0) == 0xE0:    # MPEG audio frame sync (MP3/AAC)
         return True
+    # WebM / Matroska (EBML header) -- audio/webm, what Chrome's MediaRecorder actually produces
+    # (added 2026-10-09 for the monitoring session's audio clips). Same top-level container
+    # signature as video/webm (EBML doesn't disambiguate track types at this level, same "broader
+    # family, not exact type" limitation as _is_isobmff above) -- real decoding (PyAV) downstream
+    # is what actually confirms an audio track exists.
+    if head.startswith(b"\x1a\x45\xdf\xa3"):
+        return True
     return _is_isobmff(head)                                               # M4A
 
 

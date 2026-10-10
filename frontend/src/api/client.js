@@ -250,9 +250,12 @@ export const startMonitoringSession = async () => {
   }
 }
 
-export const submitMonitoringCheck = async (sessionId, uploadId) => {
+export const submitMonitoringCheck = async (sessionId, uploadId, audioUploadId) => {
   try {
-    return (await api.post(`/identity/sessions/${sessionId}/checks`, { upload_id: uploadId })).data
+    return (await api.post(`/identity/sessions/${sessionId}/checks`, {
+      upload_id: uploadId,
+      audio_upload_id: audioUploadId,
+    })).data
   } catch (err) {
     const e = new Error(friendlyError(err))
     e.status = err?.response?.status

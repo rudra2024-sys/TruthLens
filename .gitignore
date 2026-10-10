@@ -73,6 +73,11 @@ truthlens.db
 *.safetensors
 *.h5
 models/checkpoints/
+# backend/checkpoints/ is documented throughout CLAUDE.md as gitignored (video/audio/identity
+# checkpoints copied here for local/Docker runs), but *.pt/*.pth above don't catch every file in
+# it -- e.g. yolov8n.onnx (~12MB, object-detection pipeline). Ignore the whole directory instead
+# of relying on extension patterns to catch everything dropped into it.
+backend/checkpoints/
 
 # ---- Temporary files ----
 *.tmp

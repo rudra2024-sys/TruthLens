@@ -19,8 +19,44 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
 from app.core.config import settings
 from app.models.models import Upload, DetectionResult
+from app.services.report.pdf_theme import (
+    CONTENT_WIDTH,
+    footer_block,
+    info_card,
+    report_header,
+    section_heading,
+    technical_divider,
+    tl_styles,
+    verdict_card,
+)
 
 logger = logging.getLogger(__name__)
+
+_VERDICT_HEADLINE = {
+    "FAKE": "This file shows signs of AI generation or manipulation.",
+    "REAL": "This file appears to be authentic.",
+    "UNCERTAIN": "This result is inconclusive.",
+}
+
+_MEDIA_WORD = {"image": "image", "video": "video", "audio": "audio clip"}
+
+
+def _plain_summary_sentence(media_type: str, verdict: str, confidence: float) -> str:
+    """One honest, jargon-free sentence restating the already-computed verdict/confidence --
+    never a new claim, just a plain-English version of numbers detailed later in the report
+    (see pdf_theme.py's module docstring and CLAUDE.md section 8 rule 5)."""
+    kind = _MEDIA_WORD.get(media_type, "file")
+    pct = f"{confidence * 100:.0f}%"
+    if verdict == "FAKE":
+        return (f"TruthLens's detection models are {pct} confident this {kind} was generated or "
+                f"manipulated by AI. See “Technical Details” below for exactly how this was measured.")
+    if verdict == "REAL":
+        return (f"TruthLens's detection models are {pct} confident this {kind} is authentic, with no signs "
+                f"of AI generation or manipulation found. See “Technical Details” below for how this "
+                f"was measured.")
+    return (f"TruthLens's detection models could not confidently tell whether this {kind} is real or "
+            f"AI-generated (confidence {pct}). Treat this result as inconclusive rather than a verdict "
+            f"either way -- see “Technical Details” below.")
 
 
 def _rl_image(raw: bytes, width_cm: float, max_height_cm: float | None = None):
@@ -65,7 +101,7 @@ def _frame_timeline(video, width_cm: float = 16.0, height_cm: float = 5.0) -> Dr
     return d
 
 
-def _explainability_flowables(upload: Upload, result: DetectionResult, styles) -> list:
+def _explainability_flowables(upload: Upload, result: DetectionResult, styles, tl) -> list:
     """Explainability section (heatmap / per-frame timeline). Returns [] when nothing can be shown."""
     from app.services.explain.service import build_explanation
 
@@ -73,8 +109,8 @@ def _explainability_flowables(upload: Upload, result: DetectionResult, styles) -
     ex = build_explanation(upload, result)
     if not ex.available:
         return []
-    out = [Spacer(1, 0.6 * cm), Paragraph("Explainability", styles["Heading3"]),
-           Paragraph(f"Method: {ex.method}", small), Spacer(1, 0.2 * cm)]
+    out = [Spacer(1, 0.3 * cm)] + section_heading(tl, "Explainability")
+    out += [Paragraph(f"Method: {ex.method}", small), Spacer(1, 0.2 * cm)]
 
     if ex.image is not None:
         img = ex.image
@@ -137,7 +173,7 @@ def _explainability_flowables(upload: Upload, result: DetectionResult, styles) -
     return out
 
 
-def _provenance_flowables(upload: Upload, result: DetectionResult, styles) -> list:
+def _provenance_flowables(upload: Upload, result: DetectionResult, styles, tl) -> list:
     """Provenance & metadata section (C2PA credentials, embedded metadata, ELA visual aid)."""
     from app.services.provenance.service import build_provenance
 
@@ -148,8 +184,8 @@ def _provenance_flowables(upload: Upload, result: DetectionResult, styles) -> li
         return []
 
     tone = {"strong": "#dc2626", "moderate": "#d97706", "weak": "#64748b", "none": "#64748b"}
-    out = [Spacer(1, 0.6 * cm), Paragraph("Provenance &amp; Metadata", styles["Heading3"]),
-           Paragraph(pv.assessment.headline, body), Spacer(1, 0.15 * cm)]
+    out = [Spacer(1, 0.3 * cm)] + section_heading(tl, "Provenance &amp; Metadata")
+    out += [Paragraph(pv.assessment.headline, body), Spacer(1, 0.15 * cm)]
 
     if pv.assessment.conflict_note:
         box = Table([[Paragraph("<b>Provenance conflicts with the model verdict.</b> "
@@ -231,95 +267,66 @@ def generate_pdf_report(upload: Upload, result: DetectionResult) -> str:
     )
 
     styles = getSampleStyleSheet()
-
-    title_style = ParagraphStyle(
-        "TLTitle",
-        parent=styles["Title"],
-        textColor=colors.HexColor("#0F6B66"),
-    )
-
-    verdict_hex = {
-        "FAKE": "#dc2626",
-        "REAL": "#16a34a",
-        "UNCERTAIN": "#d97706",
-    }.get(result.verdict, "#000000")
+    tl = tl_styles()
 
     elements = []
 
     # ---------------------------------------------------------
-    # TITLE
+    # HEADER
     # ---------------------------------------------------------
 
-    elements.append(
-        Paragraph(
-            "TruthLens Forensic Detection Report",
-            title_style,
-        )
+    elements += report_header(
+        tl, "Forensic Detection Report",
+        f"File: {upload.file_name} &nbsp;&middot;&nbsp; Scanned {result.detected_at}",
     )
-
-    elements.append(Spacer(1, 0.5 * cm))
 
     # ---------------------------------------------------------
-    # FILE / SCAN INFORMATION
+    # VERDICT -- the plain-English summary a non-technical reader needs first.
     # ---------------------------------------------------------
 
-    meta_table = Table(
-        [
-            ["File Name", upload.file_name],
-            ["Media Type", upload.media_type.upper()],
-            ["File Size", f"{upload.file_size_kb:.1f} KB"],
-            ["Scanned At", result.detected_at],
-            ["Model Used", result.model_used],
-            ["Processing Time", f"{result.processing_time_ms:.0f} ms"],
-        ],
-        colWidths=[5 * cm, 10 * cm],
+    headline = _VERDICT_HEADLINE.get(result.verdict, "Result unavailable.")
+    summary_sentence = _plain_summary_sentence(upload.media_type, result.verdict, result.confidence_score)
+    elements += verdict_card(
+        tl,
+        result.verdict,
+        f"Verdict: {result.verdict}",
+        summary_sentence + f"<br/><br/>{headline}",
     )
-
-    meta_table.setStyle(
-        TableStyle(
-            [
-                ("FONTSIZE", (0, 0), (-1, -1), 9),
-                ("TEXTCOLOR", (0, 0), (0, -1), colors.grey),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-            ]
-        )
-    )
-
-    elements.append(meta_table)
-
-    elements.append(Spacer(1, 0.8 * cm))
 
     # ---------------------------------------------------------
-    # VERDICT
+    # FILE / SCAN INFORMATION -- the "at a glance" facts, kept short and jargon-free.
     # ---------------------------------------------------------
 
-    elements.append(
-        Paragraph(
-            f"Verdict: "
-            f"<font color='{verdict_hex}'>{result.verdict}</font>",
-            styles["Heading1"],
-        )
-    )
-
-    elements.append(
-        Paragraph(
-            f"Confidence Score: "
-            f"{result.confidence_score * 100:.1f}%",
-            styles["Heading3"],
-        )
-    )
+    info_rows = [
+        ("File Name", upload.file_name),
+        ("Media Type", upload.media_type.upper()),
+        ("File Size", f"{upload.file_size_kb:.1f} KB"),
+        ("Scanned At", result.detected_at),
+        ("Confidence Score", f"{result.confidence_score * 100:.1f}%"),
+    ]
+    if result.calibrated_confidence is not None:
+        info_rows.append(("Calibrated Confidence", f"{result.calibrated_confidence * 100:.1f}%"))
+    elements += info_card(info_rows)
+    elements.append(Spacer(1, 0.3 * cm))
 
     if result.calibrated_confidence is not None:
         small = ParagraphStyle("calib_small", parent=styles["Normal"], fontSize=8, textColor=colors.grey)
         elements.append(
             Paragraph(
-                f"Calibrated confidence: {result.calibrated_confidence * 100:.1f}% "
-                "(temperature-scaled against measured accuracy on held-out data; the raw score above is "
-                "the model's own unmodified output -- see CLAUDE.md section 25)",
+                "Calibrated confidence is temperature-scaled against measured accuracy on held-out data; "
+                "the confidence score above is the model's own unmodified output -- see CLAUDE.md section 25.",
                 small,
             )
         )
+        elements.append(Spacer(1, 0.2 * cm))
 
+    elements += technical_divider(
+        tl,
+        "The figures below are the detection pipeline's own internal scores, model names and timing -- "
+        "useful for a technical reviewer, not required reading for the verdict above.",
+    )
+    elements.append(Spacer(1, 0.1 * cm))
+    elements += info_card([("Model Used", result.model_used), ("Processing Time", f"{result.processing_time_ms:.0f} ms")])
     elements.append(Spacer(1, 0.5 * cm))
 
     # ---------------------------------------------------------
@@ -328,12 +335,7 @@ def generate_pdf_report(upload: Upload, result: DetectionResult) -> str:
 
     if result.image_analysis:
 
-        elements.append(
-            Paragraph(
-                "Image Pipeline Breakdown",
-                styles["Heading3"],
-            )
-        )
+        elements += section_heading(tl, "Image Pipeline Breakdown")
 
         image_analysis = result.image_analysis
 
@@ -407,12 +409,7 @@ def generate_pdf_report(upload: Upload, result: DetectionResult) -> str:
 
     if result.video_analysis:
 
-        elements.append(
-            Paragraph(
-                "Video Pipeline Breakdown",
-                styles["Heading3"],
-            )
-        )
+        elements += section_heading(tl, "Video Pipeline Breakdown")
 
         video_analysis = result.video_analysis
 
@@ -487,12 +484,7 @@ def generate_pdf_report(upload: Upload, result: DetectionResult) -> str:
 
     if result.audio_analysis:
 
-        elements.append(
-            Paragraph(
-                "Audio Pipeline Breakdown",
-                styles["Heading3"],
-            )
-        )
+        elements += section_heading(tl, "Audio Pipeline Breakdown")
 
         audio_analysis = result.audio_analysis
 
@@ -543,7 +535,7 @@ def generate_pdf_report(upload: Upload, result: DetectionResult) -> str:
     # ---------------------------------------------------------
 
     try:
-        elements.extend(_explainability_flowables(upload, result, styles))
+        elements.extend(_explainability_flowables(upload, result, styles, tl))
     except Exception:
         logger.exception("Explainability section skipped (upload_id=%s)", upload.upload_id)
 
@@ -552,7 +544,7 @@ def generate_pdf_report(upload: Upload, result: DetectionResult) -> str:
     # ---------------------------------------------------------
 
     try:
-        elements.extend(_provenance_flowables(upload, result, styles))
+        elements.extend(_provenance_flowables(upload, result, styles, tl))
     except Exception:
         logger.exception("Provenance section skipped (upload_id=%s)", upload.upload_id)
 
@@ -560,39 +552,13 @@ def generate_pdf_report(upload: Upload, result: DetectionResult) -> str:
     # FOOTER / DISCLAIMER
     # ---------------------------------------------------------
 
-    elements.append(
-        Spacer(1, 1 * cm)
-    )
-
-    elements.append(
-        Paragraph(
-            "TruthLens Model Information",
-            ParagraphStyle(
-                "stubTitle",
-                parent=styles["Normal"],
-                fontSize=9,
-                textColor=colors.HexColor("#B45309"),
-                spaceAfter=4,
-            ),
-        )
-    )
-
-    elements.append(
-        Paragraph(
-            "This report contains the output produced by the "
-            "TruthLens detection pipeline. For image analysis, "
-            "the FAKE/REAL Probability is the higher of the FAKE "
-            "probabilities reported by ConvNeXt-Tiny and a CLIP-based "
-            "second opinion, reported individually as sub-scores when "
-            "available. Legacy heuristic scores are included only when "
-            "present.",
-            ParagraphStyle(
-                "footer",
-                parent=styles["Normal"],
-                fontSize=8,
-                textColor=colors.grey,
-            ),
-        )
+    elements += footer_block(
+        tl,
+        "TruthLens Model Information",
+        "This report contains the output produced by the TruthLens detection pipeline. For image "
+        "analysis, the FAKE/REAL Probability is the higher of the FAKE probabilities reported by "
+        "ConvNeXt-Tiny and a CLIP-based second opinion, reported individually as sub-scores when "
+        "available. Legacy heuristic scores are included only when present.",
     )
 
     # ---------------------------------------------------------
