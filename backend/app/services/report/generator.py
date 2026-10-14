@@ -309,7 +309,9 @@ def generate_pdf_report(upload: Upload, result: DetectionResult) -> str:
     elements += info_card(info_rows)
     elements.append(Spacer(1, 0.3 * cm))
 
-    if result.calibrated_confidence is not None:
+    video_on_calibrated_scale = bool(result.video_analysis is not None
+                                     and getattr(result.video_analysis, "calibrated_fake_probability", None) is not None)
+    if result.calibrated_confidence is not None and not video_on_calibrated_scale:
         small = ParagraphStyle("calib_small", parent=styles["Normal"], fontSize=8, textColor=colors.grey)
         elements.append(
             Paragraph(
@@ -424,6 +426,32 @@ def generate_pdf_report(upload: Upload, result: DetectionResult) -> str:
                         styles["Normal"],
                     )
                 )
+            cal = getattr(video_analysis, "calibrated_fake_probability", None)
+            if cal is not None:
+                elements.append(
+                    Paragraph(
+                        f"Calibrated FAKE Probability (used for the verdict): {cal * 100:.1f}% "
+                        "<font size=8 color='grey'>(the raw score above, rescaled against measured accuracy on "
+                        "held-out face-swap videos; the verdict is FAKE at 70% or above, REAL at 30% or below, "
+                        "UNCERTAIN in between)</font>",
+                        styles["Normal"],
+                    )
+                )
+            side = getattr(video_analysis, "short_side_px", None)
+            if side:
+                elements.append(Paragraph(f"Video Resolution (short side): {side} px", styles["Normal"]))
+            if getattr(video_analysis, "low_resolution", None):
+                elements.append(
+                    Paragraph(
+                        "<font color='#d97706'><b>Verdict withheld - low resolution:</b></font> this video is "
+                        f"only {side} px on its short side. The model's accuracy was measured to fall sharply on "
+                        "small footage (and to be no better than chance on 224 px clips), so the result is "
+                        "reported as UNCERTAIN regardless of the score. A higher-resolution copy of the video "
+                        "can be checked instead.",
+                        ParagraphStyle("lowres", parent=styles["Normal"], fontSize=9,
+                                       textColor=colors.HexColor("#92400e")),
+                    )
+                )
             if video_analysis.frames_analyzed is not None:
                 elements.append(
                     Paragraph(
@@ -451,6 +479,15 @@ def generate_pdf_report(upload: Upload, result: DetectionResult) -> str:
                                            textColor=colors.HexColor("#92400e")),
                         )
                     )
+            elements.append(
+                Paragraph(
+                    "<b>Scope:</b> the video model is trained to detect face-swap and lip-sync deepfakes. Videos "
+                    "generated entirely by AI (for example Sora or Kling) are outside what it was trained on and "
+                    "can be reported as REAL, so a REAL or UNCERTAIN verdict is not proof that a video is authentic.",
+                    ParagraphStyle("videoscope", parent=styles["Normal"], fontSize=9,
+                                   textColor=colors.HexColor("#4b5563")),
+                )
+            )
         elif video_analysis.xception_score is not None:
             elements.append(
                 Paragraph(

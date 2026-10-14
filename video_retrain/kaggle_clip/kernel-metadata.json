@@ -1,0 +1,13 @@
+{
+  "id": "maninijaiswal/truthlens-video-r4-clip-probe",
+  "title": "truthlens-video-r4-clip-probe",
+  "code_file": "clip_probe.py",
+  "language": "python",
+  "kernel_type": "script",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_internet": true,
+  "dataset_sources": ["maninijaiswal/truthlens-video-ft-inputs"],
+  "competition_sources": [],
+  "kernel_sources": ["maninijaiswal/truthlens-video-finetune-v2"]
+}

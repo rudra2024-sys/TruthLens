@@ -29,9 +29,28 @@ error measured at 0.16 for images and 0.25 for video.)
 * The "trained on" numbers measure *fit*, not generalisation (the exact training hold-out split was not recorded). Datasets can also carry shortcuts:
   in DeepDetect a trivial JPEG statistic separates real from fake almost perfectly, so 99 % there may partly be a dataset artefact.
 
-**Video** (Video Model v1, face crops, threshold 0.525)
+**Video** (Video Model v1 **round 4**, live since 2026-10-14: EfficientNet-B0 on face crops, fine-tuned on FF++,
+Celeb-DF, DFDC, DFD, RTFS, FakeAVCeleb and phone-recorded face swaps; verdict on a Platt-calibrated scale, FAKE ≥ 0.7,
+REAL ≤ 0.3, UNCERTAIN in between and always UNCERTAIN below 360 px)
 
-| Data | Accuracy | AUC |
+Held-out test videos — none used for training or for fitting the calibration:
+
+| Data | Previous model (epoch 11) AUC | Round 4 AUC | Real videos wrongly called FAKE |
+|---|---|---|---|
+| All local held-out videos (356: Celeb-DF, DFDC, FF++, RTFS, FakeAVCeleb, own clips) | 0.765 | **0.961** | 21 → 8 of 185 |
+| Held-out actors / persons (DFD + phone face swaps, 285) | 0.845 | **0.977** | 28 → 6 of 157 |
+| Fully AI-generated video (Sora, Kling — 5 clips) | — | **0 of 5 caught** | — |
+
+* **What it is for:** face-swap and lip-sync deepfakes. **Fully AI-generated video (Sora, Kling and similar) is outside
+  what it was trained on** — round 4 called two of five such clips REAL and left the other three UNCERTAIN. The PDF
+  report states this scope in its video section, so a REAL or UNCERTAIN verdict is not read as proof of
+  authenticity.
+* Low-resolution clips (short side under 360 px, e.g. FakeAVCeleb's 224 px videos) are always UNCERTAIN, even though
+  round 4 ranks them well (AUC 0.99) — the calibration was not fitted on footage that small.
+* The rows below and the robustness results in §3 were measured on the **previous** model (epoch 11) and have not yet
+  been re-run for round 4.
+
+| Data (previous model, epoch 11) | Accuracy | AUC |
 |---|---|---|
 | Unseen face swaps (RTFS: inswapper, uniface) | 79 % | 0.89 |
 | Celeb-DF-v2, original protocol (6,529 videos) | — | 0.695 |

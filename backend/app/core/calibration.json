@@ -6,9 +6,11 @@
     "ece_after": 0.0556
   },
   "video": {
-    "temperature": 0.1155,
-    "n": 300,
-    "ece_before": 0.2543,
-    "ece_after": 0.0592
+    "method": "platt",
+    "a": 1.8237,
+    "b": -0.0946,
+    "n": 926,
+    "min_short_side_px": 360,
+    "fit_on": "Video Model v1 round 4 (video_v1_round4.pt) mean logits, round-4 validation split, short side >= 360 (video_retrain/work/kaggle_output_v8/run_r4/val_scores.csv, fitted 2026-10-12)"
   }
 }

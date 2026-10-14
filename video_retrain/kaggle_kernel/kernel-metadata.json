@@ -1,0 +1,29 @@
+{
+  "id": "maninijaiswal/truthlens-video-finetune-v2",
+  "title": "truthlens-video-finetune-v2",
+  "code_file": "TruthLens_Video_Finetune_v2_kaggle.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_internet": true,
+  "dataset_sources": [
+    "stplusplus/rtfs-10k",
+    "shreyaty08/fakeavceleb",
+    "reubensuju/celeb-df-v2",
+    "xdxd003/ff-c23",
+    "pranay22077/dfdc-10",
+    "sanikatiwarekar/deep-fake-detection-dfd-entire-original-dataset",
+    "tapakah68/selfies-and-video-dataset-4-000-people",
+    "trainingdatapro/real-vs-fake-anti-spoofing-video-classification",
+    "trainingdatapro/asian-people-liveness-detection-video-dataset",
+    "trainingdatapro/black-people-liveness-detection-video-dataset",
+    "trainingdatapro/anti-spoofing-live",
+    "trainingdatapro/full-hd-webcam-live-attacks",
+    "maninijaiswal/truthlens-video-ft-inputs"
+  ],
+  "competition_sources": [],
+  "kernel_sources": [
+    "maninijaiswal/truthlens-video-finetune-v2"
+  ]
+}

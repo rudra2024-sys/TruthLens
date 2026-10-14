@@ -49,7 +49,7 @@ def _default_checkpoints() -> dict[str, dict]:
         ),
         "video_model_v1": _checkpoint_status(
             "VIDEO_MODEL_V1_CHECKPOINT",
-            BACKEND / "checkpoints" / "video" / "epoch_11_model_only.pt",
+            BACKEND / "checkpoints" / "video" / "video_v1_round4.pt",
         ),
         "audio_model_v1": _checkpoint_status(
             "AUDIO_MODEL_V1_CHECKPOINT",

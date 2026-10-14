@@ -32,7 +32,9 @@ async def run_audio_detection(upload: Upload, db: AsyncSession) -> str:
     detection = DetectionResultRow(
         result_id=result_id,
         upload_id=upload.upload_id,
-        confidence_score=result.confidence,
+        # result.confidence is the raw spoof probability P(FAKE) (also kept in AudioAnalysis below); the stored
+        # confidence_score is confidence in the verdict given, max(p, 1-p), same as image and video.
+        confidence_score=max(result.confidence, 1 - result.confidence),
         verdict=result.verdict,
         model_used=result.model_used,
         processing_time_ms=elapsed_ms,

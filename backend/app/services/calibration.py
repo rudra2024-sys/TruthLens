@@ -42,12 +42,33 @@ def clear_cache() -> None:
 
 
 def calibrate(probability: float, media_type: str) -> float | None:
-    """Returns the calibrated probability for `media_type`, or None if no temperature has been fit for it
-    (e.g. audio, or a media type with no eval data yet)."""
+    """Returns the calibrated probability for `media_type`, or None if nothing has been fit for it
+    (e.g. audio, or a media type with no eval data yet).
+
+    Two forms: temperature scaling (`{"temperature": T}`, sigmoid(logit(p) / T), image) and Platt scaling
+    (`{"method": "platt", "a": a, "b": b}`, sigmoid(a * logit(p) + b), video since 2026-10-10 - the bias term is
+    needed because Video Model v1's raw scores are both compressed toward 0.5 and centred on 0.525, not 0.5)."""
     cfg = _load().get(media_type)
     if cfg is None:
         return None
-    temperature = cfg["temperature"]
     p = min(max(probability, _EPS), 1 - _EPS)
     z = math.log(p / (1 - p))
-    return 1.0 / (1.0 + math.exp(-z / temperature))
+    if cfg.get("method") == "platt":
+        return 1.0 / (1.0 + math.exp(-(cfg["a"] * z + cfg["b"])))
+    return 1.0 / (1.0 + math.exp(-z / cfg["temperature"]))
+
+
+def min_short_side_px(media_type: str) -> int | None:
+    """Smallest frame short side (pixels) at which the calibrated verdict is trusted, or None for no limit."""
+    cfg = _load().get(media_type) or {}
+    return cfg.get("min_short_side_px")
+
+
+def raw_threshold(media_type: str, default: float) -> float:
+    """The raw model probability that calibrates to exactly 0.5 (the calibrated decision centre), so per-frame
+    explanations can mark the threshold the verdict actually uses. `default` when nothing is fit."""
+    cfg = _load().get(media_type)
+    if not cfg:
+        return default
+    z = -cfg["b"] / cfg["a"] if cfg.get("method") == "platt" else 0.0
+    return 1.0 / (1.0 + math.exp(-z))

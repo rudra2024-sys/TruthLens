@@ -30,6 +30,9 @@ class VideoAnalysisOut(BaseModel):
     frames_analyzed: int
     frames_with_face: Optional[int] = None  # of frames_analyzed, how many had an actual face detection
                                              # (not the center-square fallback) -- see CLAUDE.md section 21
+    calibrated_fake_probability: Optional[float] = None  # P(FAKE) on the scale the verdict uses (CLAUDE.md s. 26)
+    short_side_px: Optional[int] = None
+    low_resolution: Optional[bool] = None    # True -> verdict withheld as UNCERTAIN: video too small to judge
     class Config:
         from_attributes = True
 

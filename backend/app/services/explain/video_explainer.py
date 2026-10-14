@@ -15,6 +15,7 @@ import numpy as np
 import torch
 from PIL import Image
 
+from app.services import calibration
 from app.services.explain import core
 from app.services.video.model_v1 import common, optimized
 
@@ -95,12 +96,14 @@ def explain_video(path: str, checkpoint_path: str | None = None) -> VideoExplana
             )
         )
 
+    # The raw per-frame probability that corresponds to the calibrated 0.5 the verdict is centred on (section 26).
+    threshold = float(calibration.raw_threshold("video", common.THRESHOLD))
     return VideoExplanation(
         frames=out,
         mean_logit=mean_logit,
         probability=probability,
-        threshold=float(common.THRESHOLD),
-        frames_above_threshold=int(sum(1 for f in out if f.probability >= common.THRESHOLD)),
+        threshold=threshold,
+        frames_above_threshold=int(sum(1 for f in out if f.probability >= threshold)),
         fps=fps,
         duration_s=(frame_count / fps) if fps else None,
     )

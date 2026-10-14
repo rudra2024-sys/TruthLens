@@ -170,10 +170,12 @@ instead of a bare crash — keep this when touching `main.py`.
     outputs are via DiffusionDB. No training data search has been attempted for this yet.
 - **Audio — Wav2Vec2 + LCNN**: exists **separately**, not yet integrated into this codebase.
   Will be integrated later — do not wire it in without explicit instruction.
-- **Video — Video Model v1 (EfficientNet-B0, epoch 11)**: `backend/app/services/video/model_v1/`
-  (`common.py`/`baseline.py`/`optimized.py`). Checkpoint: **`backend/checkpoints/video/
-  epoch_11_model_only.pt`** (~16MB, gitignored). This is now the **active production video
-  detector**, wired via `backend/app/services/video/backend.py`'s `VideoModelV1Backend`
+- **Video — Video Model v1 (EfficientNet-B0; round-4 fine-tune live since 2026-10-14, see section 27)**:
+  `backend/app/services/video/model_v1/` (`common.py`/`baseline.py`/`optimized.py`). Checkpoint:
+  **`backend/checkpoints/video/video_v1_round4.pt`** (~16MB, gitignored); the original
+  `epoch_11_model_only.pt` stays beside it as the rollback, and everything below that describes "the deployed
+  model" before 2026-10-14 (blind spots, sections 10/19-23 measurements) was measured on epoch 11. This is the
+  **active production video detector**, wired via `backend/app/services/video/backend.py`'s `VideoModelV1Backend`
   (selected by default; override with `VIDEO_MODEL_BACKEND=heuristic` to fall back to the old
   byte-entropy heuristic below). Line-by-line verified against a recovered original Celeb-DF-v2
   evaluation script — see git history on `app/services/video/model_v1/` for the full
@@ -310,7 +312,7 @@ Only touch it for a concrete, reproducible bug.
 | `CLIP_MODEL_CHECKPOINT` | `pipelines/image_clip/model.py` | `models/checkpoints/image_clip/clip_head_best.pth` | docker-compose points this at `clip_head_round3_portrait_app.pth` as of 2026-09-16; override with an absolute path when running outside Docker |
 | `CLIP_MODEL_DEVICE` | `pipelines/image_clip/model.py` | `auto` (cuda if available, else cpu) | `cpu`/`cuda` |
 | `VIDEO_MODEL_BACKEND` | `services/video/backend.py` | `model_v1` | `heuristic` for the old byte-entropy heuristic, or `cnn_gru_v5` for the experimental BiGRU head (§3 — opt-in only, known-weak on real-world footage, not for production use) |
-| `VIDEO_MODEL_V1_CHECKPOINT` | `services/video/model_v1/common.py` | `backend/checkpoints/video/epoch_11_model_only.pt` | absolute path recommended when running outside Docker |
+| `VIDEO_MODEL_V1_CHECKPOINT` | `services/video/model_v1/common.py` | `backend/checkpoints/video/video_v1_round4.pt` | absolute path recommended when running outside Docker; point at `epoch_11_model_only.pt` to roll back (and restore the old `"video"` calibration, section 27) |
 | `VIDEO_MODEL_V1_DEVICE` | `services/video/model_v1/common.py` | `auto` (cuda if available, else cpu) | `cpu`/`cuda` |
 | `VIDEO_MODEL_CNN_GRU_V5_CHECKPOINT` | `services/video/cnn_gru_v5.py` | `backend/checkpoints/video/cnn_gru_v5_head.pt` | only relevant when `VIDEO_MODEL_BACKEND=cnn_gru_v5` |
 | `MODEL_SERVICE_URL` | `services/models/model_client.py` | `http://models:8001` | only relevant if the `models/` microservice is actually deployed as a docker-compose service, which it currently is not |
@@ -551,8 +553,12 @@ event loop for every other user. The frontend now runs **video** scans as jobs (
   by default (`DETECTION_JOB_CONCURRENCY`). If the user leaves the page the scan keeps running and lands in the history.
 - **Tests:** `backend/tests/test_jobs.py` (13 tests incl. non-blocking, cancel-stops-early, queue position, ownership);
   the mutation tool `backend/tests/mutation_check.py` (17 guarded behaviours as of section 17 below) catches all of them.
-- **Known pre-existing quirk (not changed):** for video, `confidence_score` is the raw FAKE probability (Video Model v1's
-  protocol), so the UI's confidence gauge shows e.g. "31 %" next to an AUTHENTIC verdict; image and audio use max(p, 1-p).
+- **Confidence convention (fixed 2026-10-09):** video and audio used to store the raw FAKE probability as
+  `confidence_score`, so a confident REAL showed ~0 % confidence. All three media types now store confidence in the
+  verdict given, max(p, 1-p) (`video/detector.py`, `audio/detector.py`; video's `calibrated_confidence` likewise). The
+  backends' own `.confidence` is still raw P(FAKE) (eval relies on it), and the raw value is still in
+  `video_analysis.xception_score` / `audio_analysis.wav2vec_score`. A light migration in `core/database.py` converts
+  old rows (idempotent, lossless). Tests: `backend/tests/test_confidence_score.py`.
 
 ---
 
@@ -1095,3 +1101,65 @@ in this session) and a new fusion/lip-sync model (a new ML system). Everything e
     reproduce the identical 600-image sample across two separate runs) ->
     `eval/data/manifest_fairness.csv` (manifest only, not the underlying images - those stay in
     `D:\eval_data\`, not committed, same as every other eval dataset).
+
+---
+
+## 26. Video verdict on a calibrated scale + low-resolution guard (production) - 2026-10-10
+
+Approved explicitly by the user ("go ahead with step 1") after measuring why nearly every video came back UNCERTAIN.
+Same checkpoint, same preprocessing; only how the score becomes a verdict changed.
+
+- **Problem measured:** Video Model v1's raw scores sit almost entirely in 0.2-0.7, so the old +-0.2 band around the
+  raw 0.525 (0.325-0.725) made **294/300 RTFS videos UNCERTAIN and FAKE unreachable**, although the model ranks RTFS
+  well (AUC 0.89-0.92).
+- **Fix:** Platt rescaling of the mean frame logit, `cal = sigmoid(a*z + b)` with a=6.8252, b=0.0817
+  (`app/core/calibration.json` "video", `method: platt`), then the usual band around 0.5 on `cal` (FAKE >= 0.7,
+  REAL <= 0.3). Fitted with scikit-learn on a **fit split only**: 160 videos (RTFS + FakeAVCeleb), grouped so no
+  source clip or person crosses splits; all numbers below are on the separate 161-video test split.
+- **Resolution guard:** videos whose short side is < `min_short_side_px` (360) are always UNCERTAIN. Measured by
+  re-scoring the same RTFS test videos downscaled: AUC 0.923 (1080p), 0.919 (720), 0.885 (480), 0.865 (360), 0.729
+  (240); FakeAVCeleb (224 px) is at chance (AUC 0.43). Without the guard the rescaling produced confident *wrong*
+  verdicts on 224 px clips (35% accuracy among decided).
+- **Result (test split):** RTFS: decided 75% (was 1.7%), accuracy among decided 91.1%; FakeAVCeleb (low-res): all
+  withheld, 0 confident wrong verdicts; pooled ECE 0.161 -> 0.078.
+- **Where:** `video/backend.py::VideoModelV1Backend.score` (verdict, `_short_side_px` via container metadata),
+  `services/calibration.py` (Platt support, `min_short_side_px`, `raw_threshold` for the explainer's per-frame
+  threshold), `video/detector.py` (confidence_score on the verdict scale; low-res keeps the raw two-sided confidence
+  and no calibrated value), new nullable `video_analysis` columns `calibrated_fake_probability`, `short_side_px`,
+  `low_resolution` (light migrations), PDF lines + "Verdict withheld - low resolution" note,
+  `frontend/src/components/LowResolutionNote.jsx` (result card + report page). The backend's own `.confidence` is
+  still the raw P(FAKE) (eval relies on it) and `xception_score` still stores it. With no calibration configured the
+  old raw band is used. `eval/fit_calibration.py` now leaves a Platt entry untouched. Other video backends unchanged.
+- **Not fixed by this:** the model still cannot separate FakeAVCeleb-style fakes (generator gap, not just
+  resolution) or Akool/Magic Hour clips; that is what step 2 (fine-tuning, `video_retrain/`) targets.
+- Data, scores and scripts: `video_retrain/work/step1_calibration/` (git-ignored). Tests:
+  `backend/tests/test_video_calibrated_verdict.py` (18).
+
+---
+
+## 27. Video Model v1 round 4 made the production default - 2026-10-14
+
+Approved explicitly by the user after reviewing the held-out comparison ("okay works, go on do all of this"). Same
+architecture and preprocessing; new weights + a new Platt calibration fitted for them.
+
+- **Checkpoint:** `backend/checkpoints/video/video_v1_round4.pt` (Kaggle kernel version 8, `run_r4/best.pt`,
+  sha256 `d57cd03c...`, in `models/CHECKSUMS.sha256`). Fine-tuned from epoch 11 on FF++, Celeb-DF, DFDC, DFD, RTFS,
+  FakeAVCeleb and phone-recorded face swaps (scripts/notebooks/manifests in `video_retrain/`, outputs in
+  `video_retrain/work/kaggle_output_v8/`). `common.DEFAULT_CHECKPOINT` and `core/readiness.py` point at it.
+- **Calibration:** `calibration.json` "video" is now Platt a=1.8237, b=-0.0946, fitted ONLY on round 4's validation
+  split (926 videos, short side >= 360). Same band (FAKE >= 0.7, REAL <= 0.3) and 360 px guard as section 26.
+  Previous entry (for rollback): a=6.8252, b=0.0817, n=159.
+- **Verified before swapping:** production `optimized.predict` with the round-4 file reproduces the notebook/local
+  scores exactly (e.g. 0.116191 / 0.786844); live API on a held-out RTFS fake -> FAKE, raw 0.787, calibrated 0.908.
+- **Held-out results (`video_retrain/compare_r4.py`):** 356 local held-out videos AUC 0.765 -> 0.961, real videos
+  wrongly FAKE 21 -> 8 / 185, fakes caught 82 -> 114 / 171; DFD+phone held-out actors AUC 0.845 -> 0.977, wrongly
+  FAKE 28 -> 6 / 157. Fully AI-generated video (Sora/Kling, 5 clips): 0 caught (2 REAL, 3 UNCERTAIN).
+- **Scope note added (rule 5):** a "Scope:" line in the PDF video section only (an on-screen version,
+  `VideoScopeNote.jsx`, was added and then removed from the UI at the user's request the same day): trained for face-swap/lip-sync, fully AI-generated video
+  is out of scope, REAL/UNCERTAIN is not proof of authenticity. `docs/ETHICS_AND_LIMITATIONS.md` section 2 updated.
+- **Model name** on new results: "TruthLens Video Model v1 (EfficientNet-B0, round 4)" (all four v1-based backends
+  share the default checkpoint). Old DB rows keep "epoch 11", which is correct for them.
+- **Not re-run for round 4 yet:** the robustness study (section 23), the 300-video RTFS harness (section 10), and the
+  rotation/consensus/wide-pad experiments (sections 19-22) - their numbers are epoch-11 numbers.
+- Tests: `test_video_calibrated_verdict.py` constants updated to the new fit (one test's example scores changed
+  because round 4's gentler slope correctly leaves raw 0.60 UNCERTAIN). Full suite: 495 passed, 18 skipped.

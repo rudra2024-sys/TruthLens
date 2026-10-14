@@ -169,6 +169,11 @@ class VideoAnalysis(Base):
     face_voice_sync:   Mapped[float] = mapped_column(Float, nullable=True)
     frames_analyzed:   Mapped[int]   = mapped_column(Integer)
     frames_with_face:  Mapped[int]   = mapped_column(Integer, nullable=True)
+    # Video Model v1 verdict inputs (CLAUDE.md section 26): calibrated P(FAKE) the verdict was banded on, the frame's
+    # short side in pixels, and whether the verdict was withheld as UNCERTAIN because the video is too small.
+    calibrated_fake_probability: Mapped[float] = mapped_column(Float, nullable=True)
+    short_side_px:     Mapped[int]   = mapped_column(Integer, nullable=True)
+    low_resolution:    Mapped[bool]  = mapped_column(Boolean, nullable=True)
     result: Mapped["DetectionResult"] = relationship("DetectionResult", back_populates="video_analysis")
 
 

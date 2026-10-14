@@ -78,8 +78,14 @@ def _load_video_scores() -> tuple[np.ndarray, np.ndarray]:
 
 
 def main():
-    out = {}
+    out_path = BACKEND / "app" / "core" / "calibration.json"
+    # Keep entries this script doesn't own: video moved to a Platt fit + resolution guard on 2026-10-10
+    # (CLAUDE.md section 26, video_retrain/work/step1_calibration) and must not be overwritten by a temperature fit.
+    out = json.loads(out_path.read_text(encoding="utf-8")) if out_path.exists() else {}
     for media, loader in (("image", _load_image_scores), ("video", _load_video_scores)):
+        if out.get(media, {}).get("method") == "platt":
+            print(f"{media}: Platt calibration in place (fitted elsewhere), leaving it unchanged")
+            continue
         y, p = loader()
         if len(y) == 0:
             print(f"{media}: no data found, skipping")
@@ -92,7 +98,6 @@ def main():
                       "ece_before": round(ece_before, 4), "ece_after": round(ece_after, 4)}
         print(f"{media}: n={len(y)} T={T:.4f} ECE {ece_before:.4f} -> {ece_after:.4f}")
 
-    out_path = BACKEND / "app" / "core" / "calibration.json"
     out_path.write_text(json.dumps(out, indent=2) + "\n", encoding="utf-8")
     print(f"wrote {out_path}")
 

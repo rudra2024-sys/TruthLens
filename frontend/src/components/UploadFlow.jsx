@@ -19,6 +19,7 @@ import SpecimenDossier from './SpecimenDossier'
 import ExplanationPanel from './ExplanationPanel'
 import ProvenancePanel from './ProvenancePanel'
 import FeedbackPanel from './FeedbackPanel'
+import LowResolutionNote from './LowResolutionNote'
 import { getVerdictInfo } from '../lib/verdict'
 
 /**
@@ -35,16 +36,16 @@ const ArrowRight = () => (
   </svg>
 )
 
-const kindOf = (type) => {
-  if (!type) return 'other'
-  if (type.startsWith('image')) return 'image'
-  if (type.startsWith('video')) return 'video'
-  if (type.startsWith('audio')) return 'audio'
+const kindOf = (type, name) => {
+  if (type?.startsWith('image')) return 'image'
+  if (type?.startsWith('video')) return 'video'
+  if (type?.startsWith('audio')) return 'audio'
+  if (/\.(opus|ogg|oga)$/i.test(name || '')) return 'audio'   // browsers often report no type for .opus
   return 'other'
 }
 
-const getFileIcon = (type) => {
-  const k = kindOf(type)
+const getFileIcon = (type, name) => {
+  const k = kindOf(type, name)
   if (k === 'image') return <ImageIcon size={18} strokeWidth={1.5} />
   if (k === 'video') return <VideoIcon size={18} strokeWidth={1.5} />
   if (k === 'audio') return <AudioLines size={18} strokeWidth={1.5} />
@@ -94,7 +95,7 @@ function JobProgress({ job, onCancel }) {
 const SCAN_LABEL = { image: 'Pixel Scan', video: 'Captured Frames', audio: 'Waveform', other: 'Specimen' }
 
 const SpecimenPreview = ({ file, active }) => {
-  const kind = kindOf(file?.type)
+  const kind = kindOf(file?.type, file?.name)
   return (
     <div className="relative w-full aspect-[4/3] bg-ground border border-line rounded-[4px] overflow-hidden">
       {kind === 'image' && <PixelGridScan file={file} active={active} />}
@@ -187,7 +188,7 @@ export default function UploadFlow({ compact = false, showRecent = false, headin
       const uploadRes = await uploadMedia(selectedFile, (p) => setProgress(p))
       const uploadId = uploadRes.data.upload_id
       setUploading(false); setAnalyzing(true)
-      const detectRes = kindOf(selectedFile.type) === 'video' ? await runVideoJob(uploadId) : await runDetection(uploadId)
+      const detectRes = kindOf(selectedFile.type, selectedFile.name) === 'video' ? await runVideoJob(uploadId) : await runDetection(uploadId)
       setDetectDone(true)
       setTimeout(() => {
         setAnalyzing(false)
@@ -335,6 +336,8 @@ export default function UploadFlow({ compact = false, showRecent = false, headin
             <ConfidenceGauge value={result.confidence_score} accent={info.accent} size={gaugeSize} />
           </div>
 
+          <LowResolutionNote analysis={result.video_analysis} className="mb-8" />
+
           {/* Examination Controls — the case isn't over just because the
               verdict rendered: the specimen can still be inspected again,
               or replaced outright, without leaving this card. */}
@@ -375,7 +378,7 @@ export default function UploadFlow({ compact = false, showRecent = false, headin
           <Disclosure open={inspectOpen} id="specimen-inspect-panel">
             <div className="grid md:grid-cols-2 gap-8 pt-8">
               <div>
-                <p className="tl-hud-label !text-[9px] mb-3">{SCAN_LABEL[kindOf(file?.type)]} — captured from your file</p>
+                <p className="tl-hud-label !text-[9px] mb-3">{SCAN_LABEL[kindOf(file?.type, file?.name)]} — captured from your file</p>
                 <SpecimenPreview file={file} active={false} />
               </div>
               <SpecimenDossier file={file} />
@@ -384,10 +387,10 @@ export default function UploadFlow({ compact = false, showRecent = false, headin
 
           {/* Provenance (image/video): C2PA credentials + embedded metadata. Supplementary to the verdict;
               a conflict with the model verdict is shown up front. Cheap, so fetched automatically. */}
-          <ProvenancePanel uploadId={result.uploadId} mediaType={kindOf(file?.type)} className="mt-8" />
+          <ProvenancePanel uploadId={result.uploadId} mediaType={kindOf(file?.type, file?.name)} className="mt-8" />
 
           {/* Explainability (image/video): fetched only when opened. */}
-          <ExplanationPanel uploadId={result.uploadId} mediaType={kindOf(file?.type)} className="mt-8" />
+          <ExplanationPanel uploadId={result.uploadId} mediaType={kindOf(file?.type, file?.name)} className="mt-8" />
 
           {/* Feedback: was the verdict right? Optional, changeable, withdrawable. */}
           <FeedbackPanel uploadId={result.uploadId} className="mt-8" />
@@ -400,7 +403,7 @@ export default function UploadFlow({ compact = false, showRecent = false, headin
           >
             <div>
               <p className="text-[10px] tracking-[0.15em] uppercase text-bone-faint mb-1">File Type</p>
-              <p className="tl-figure text-[13px] text-bone">{file?.type?.split('/')[1]?.toUpperCase() || 'UNKNOWN'}</p>
+              <p className="tl-figure text-[13px] text-bone">{file?.type?.split('/')[1]?.toUpperCase() || file?.name?.split('.').pop()?.toUpperCase() || 'UNKNOWN'}</p>
             </div>
             <div>
               <p className="text-[10px] tracking-[0.15em] uppercase text-bone-faint mb-1">Size</p>
@@ -463,7 +466,7 @@ export default function UploadFlow({ compact = false, showRecent = false, headin
                     onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigate(`/report/${item.uploadId}`) } }}
                   >
                     <div className="flex items-center justify-between gap-3 mb-4">
-                      <div className="text-bone-faint">{getFileIcon(item.fileType)}</div>
+                      <div className="text-bone-faint">{getFileIcon(item.fileType, item.filename)}</div>
                       <VerdictBadge verdict={item.verdict || item.label} />
                     </div>
                     <p className="font-serif text-[16px] text-bone mb-1 truncate">{item.filename}</p>

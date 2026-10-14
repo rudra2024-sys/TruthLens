@@ -28,7 +28,8 @@ async def get_db():
 # that don't exist yet -- it never alters an existing table). For small, purely-additive
 # schema changes on an already-live SQLite DB, run a plain idempotent ALTER TABLE here
 # instead of introducing Alembic for a couple of columns. Each statement is wrapped so a
-# "duplicate column" error (already applied on a previous startup) is silently skipped.
+# "duplicate column" error (already applied on a previous startup) is silently skipped; the
+# UPDATE statements are written to be no-ops on every run after the first.
 _LIGHT_MIGRATIONS = [
     # Added to ImageAnalysis with the CLIP ensemble, before this list existed -- DBs created earlier lack them.
     "ALTER TABLE image_analysis ADD COLUMN convnext_fake_probability FLOAT",
@@ -56,6 +57,14 @@ _LIGHT_MIGRATIONS = [
     "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_join_code ON users(join_code)",
     "ALTER TABLE monitoring_sessions ADD COLUMN organization_id TEXT",
     "ALTER TABLE face_references ADD COLUMN government_id_verified BOOLEAN DEFAULT 0",
+    "ALTER TABLE video_analysis ADD COLUMN calibrated_fake_probability FLOAT",
+    "ALTER TABLE video_analysis ADD COLUMN short_side_px INTEGER",
+    "ALTER TABLE video_analysis ADD COLUMN low_resolution BOOLEAN",
+    # Video/audio results used to store the raw P(FAKE) as confidence_score (so a confident REAL showed ~0%).
+    # Convert old rows to confidence-in-the-verdict, max(p, 1-p). Idempotent (a value >= 0.5 is left as is) and
+    # lossless (the raw P(FAKE) is still in video_analysis.xception_score / audio_analysis.wav2vec_score).
+    "UPDATE detection_results SET confidence_score = 1 - confidence_score WHERE confidence_score < 0.5",
+    "UPDATE detection_results SET calibrated_confidence = 1 - calibrated_confidence WHERE calibrated_confidence < 0.5",
 ]
 
 

@@ -14,6 +14,18 @@ router = APIRouter(prefix="/upload", tags=["Upload"])
 
 ALL_ALLOWED = settings.ALLOWED_IMAGE_TYPES + settings.ALLOWED_VIDEO_TYPES + settings.ALLOWED_AUDIO_TYPES
 
+# Browsers don't agree on a MIME type for .opus files: some send audio/ogg or audio/opus, others send nothing
+# or application/octet-stream. For those, fall back to the extension; the byte sniff below still has to agree.
+_EXTENSION_FALLBACK = {".opus": "audio/opus", ".ogg": "audio/ogg", ".oga": "audio/ogg"}
+
+
+def resolve_content_type(content_type: str | None, filename: str | None) -> str | None:
+    if content_type in (None, "", "application/octet-stream", "application/ogg"):
+        ext = os.path.splitext(filename or "")[1].lower()
+        return _EXTENSION_FALLBACK.get(ext, content_type)
+    return content_type
+
+
 def get_media_type(content_type: str) -> str:
     if content_type in settings.ALLOWED_IMAGE_TYPES: return "image"
     if content_type in settings.ALLOWED_VIDEO_TYPES: return "video"
@@ -26,8 +38,9 @@ async def upload_file(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    if not file.content_type or file.content_type not in ALL_ALLOWED:
-        raise HTTPException(415, f"Unsupported file type '{file.content_type}'. Accepted: JPG/PNG/WebP, MP4/MOV/WebM, WAV/MP3/FLAC.")
+    content_type = resolve_content_type(file.content_type, file.filename)
+    if not content_type or content_type not in ALL_ALLOWED:
+        raise HTTPException(415, f"Unsupported file type '{file.content_type}'. Accepted: JPG/PNG/WebP, MP4/MOV/WebM, WAV/MP3/FLAC/M4A/Opus.")
 
     content = await file.read()
     size_kb = len(content) / 1024
@@ -36,12 +49,12 @@ async def upload_file(
     if size_kb == 0:
         raise HTTPException(400, "Uploaded file is empty.")
 
-    media_type = get_media_type(file.content_type)
+    media_type = get_media_type(content_type)
     if not sniff_matches_declared_family(content, media_type):
         raise HTTPException(
             415,
             f"File content does not look like a {media_type} file. The declared type "
-            f"('{file.content_type}') doesn't match what's actually in the file.",
+            f"('{content_type}') doesn't match what's actually in the file.",
         )
 
     upload_id = str(uuid.uuid4())

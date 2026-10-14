@@ -28,13 +28,26 @@ async def run_video_detection(upload: Upload, db: AsyncSession, progress=None) -
     elapsed_ms = (time.perf_counter() - start) * 1000
 
     result_id = str(uuid.uuid4())
-    # Post-hoc temperature-scaling calibration (additive, supplementary -- see app/services/calibration.py
-    # and CLAUDE.md section 25). Unlike image, video's confidence_score IS already the raw P(FAKE) directly
-    # (a pre-existing, documented quirk -- CLAUDE.md section 13), so no two-sided re-derivation is needed here.
-    calibrated_confidence = calibrate(result.confidence, "video")
+    # The backend's `confidence` is the raw P(FAKE) (kept that way for eval and the analysis row below). The stored
+    # confidence_score is how sure the model is of the verdict it gave -- max(p, 1-p), same as image -- otherwise a
+    # confident REAL would show as ~0% confidence. When the backend made its verdict on the calibrated scale
+    # (Video Model v1, CLAUDE.md section 26), confidence_score is taken from that same scale so the gauge and the
+    # verdict agree; the raw P(FAKE) stays in video_analysis.xception_score.
+    # Withheld low-resolution verdicts don't use the calibrated scale (it was only validated at >= 360 px), so
+    # they keep the raw two-sided confidence and no calibrated value - otherwise an UNCERTAIN could show e.g. 89%.
+    p_fake = result.confidence
+    verdict_scale = None if result.raw_scores.get("low_resolution") else result.raw_scores.get("calibrated")
+    if verdict_scale is not None:
+        confidence_score = calibrated_confidence = max(verdict_scale, 1 - verdict_scale)
+    elif result.raw_scores.get("low_resolution"):
+        confidence_score, calibrated_confidence = max(p_fake, 1 - p_fake), None
+    else:
+        calibrated_fake = calibrate(p_fake, "video")
+        calibrated_confidence = max(calibrated_fake, 1 - calibrated_fake) if calibrated_fake is not None else None
+        confidence_score = max(p_fake, 1 - p_fake)
     detection = DetectionResultRow(
         result_id=result_id, upload_id=upload.upload_id,
-        confidence_score=result.confidence, calibrated_confidence=calibrated_confidence,
+        confidence_score=confidence_score, calibrated_confidence=calibrated_confidence,
         verdict=result.verdict,
         model_used=result.model_used,
         processing_time_ms=elapsed_ms,
@@ -48,6 +61,9 @@ async def run_video_detection(upload: Upload, db: AsyncSession, progress=None) -
         face_voice_sync=result.raw_scores.get("consistency"),
         frames_analyzed=result.raw_scores.get("windows"),
         frames_with_face=result.raw_scores.get("frames_with_face"),
+        calibrated_fake_probability=verdict_scale,
+        short_side_px=result.raw_scores.get("short_side_px"),
+        low_resolution=result.raw_scores.get("low_resolution"),
     ))
     await db.flush()
     return result_id

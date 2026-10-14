@@ -101,3 +101,9 @@ Thumbs.db
 
 # evaluation harness: local manifests + raw score CSVs
 backend/eval/data/
+
+# Local deepfake test samples (FakeAVCeleb / WaveFake / GenImage) - research-use datasets, do not commit or redistribute
+testing/
+
+# Video retraining working data (scores, held-out test videos, crops, Kaggle outputs) - local only
+video_retrain/work/

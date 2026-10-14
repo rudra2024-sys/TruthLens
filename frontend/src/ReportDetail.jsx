@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { AlertCircle, Download, ArrowLeft, ChevronDown } from 'lucide-react'
+import { AlertCircle, Download, ArrowLeft, ChevronDown, RotateCcw } from 'lucide-react'
 import { getDetectionResult, getUpload, downloadReport } from './api/client'
 import VerdictSeal from './components/VerdictSeal'
 import VerdictBadge from './components/VerdictBadge'
@@ -14,6 +14,7 @@ import Disclosure from './components/Disclosure'
 import ExplanationPanel from './components/ExplanationPanel'
 import ProvenancePanel from './components/ProvenancePanel'
 import FeedbackPanel from './components/FeedbackPanel'
+import LowResolutionNote from './components/LowResolutionNote'
 import { getVerdictInfo } from './lib/verdict'
 import { stationTag } from './lib/stations'
 
@@ -66,7 +67,9 @@ function EvidenceRows({ result }) {
   }
   if (result.video_analysis) {
     const a = result.video_analysis
-    rows.push(['Video fake probability', `${(a.xception_score * 100).toFixed(1)}%`])
+    rows.push([a.calibrated_fake_probability != null ? 'Video fake probability (raw model score)' : 'Video fake probability', `${(a.xception_score * 100).toFixed(1)}%`])
+    if (a.calibrated_fake_probability != null) rows.push(['Calibrated fake probability (used for the verdict)', `${(a.calibrated_fake_probability * 100).toFixed(1)}%`])
+    if (a.short_side_px != null) rows.push(['Video resolution (short side)', `${a.short_side_px} px`])
     if (a.face_voice_sync != null) rows.push(['Consistency score (heuristic)', `${(a.face_voice_sync * 100).toFixed(1)}%`])
     rows.push(['Frames analyzed', String(a.frames_analyzed)])
     if (a.frames_with_face != null) rows.push(['Frames with a detected face', `${a.frames_with_face} / ${a.frames_analyzed}`])
@@ -176,13 +179,15 @@ export default function ReportDetail() {
               </div>
               <div className="flex flex-col items-center gap-2">
                 <ConfidenceGauge value={result.confidence_score} accent={info.accent} size={128} />
-                {result.calibrated_confidence != null && (
+                {result.calibrated_confidence != null && result.video_analysis?.calibrated_fake_probability == null && (
                   <p className="tl-figure text-[11px] text-bone-faint" title="Temperature-scaled against measured accuracy — see CLAUDE.md section 25. Raw model output above is unchanged.">
                     calibrated: {(result.calibrated_confidence * 100).toFixed(1)}%
                   </p>
                 )}
               </div>
             </div>
+
+            <LowResolutionNote analysis={result.video_analysis} className="-mt-6 mb-10" />
 
             {/* Specimen information */}
             <motion.div
@@ -254,7 +259,10 @@ export default function ReportDetail() {
 
             <FeedbackPanel uploadId={result.upload_id} className="mb-10" />
 
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.5, duration: 0.5 }}>
+            <motion.div
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.5, duration: 0.5 }}
+              className="flex items-center gap-4 flex-wrap"
+            >
               <button
                 type="button"
                 onClick={() => downloadReport(result.upload_id)}
@@ -262,6 +270,14 @@ export default function ReportDetail() {
               >
                 <Download size={15} strokeWidth={1.75} /> Download PDF Report
               </button>
+              {/* Same action as the result card's Replace Specimen: start a fresh scan, for any media type. */}
+              <Link
+                to="/verify"
+                className="flex items-center gap-2 text-[11px] font-medium tracking-[0.08em] uppercase text-bone-dim hover:text-bone transition-colors duration-300 px-4 py-3 rounded-[3px] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brass"
+              >
+                <RotateCcw size={13} strokeWidth={1.75} />
+                Replace Specimen
+              </Link>
             </motion.div>
           </div>
         </Reveal>

@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     ALLOWED_VIDEO_TYPES: list = ["video/mp4", "video/avi", "video/quicktime", "video/webm"]
     ALLOWED_AUDIO_TYPES: list = ["audio/wav", "audio/mpeg", "audio/flac", "audio/x-wav", "audio/mp3",
                                   "audio/mp4", "audio/x-m4a", "audio/m4a",
+                                  "audio/ogg", "audio/opus",
                                   # Chrome's MediaRecorder records audio/webm (Opus) by default --
                                   # it doesn't natively produce WAV. Added for the monitoring
                                   # session's audio-clip uploads (item 7, 2026-10-09).

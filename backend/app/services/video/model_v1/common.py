@@ -54,7 +54,7 @@ DEFAULT_CHECKPOINT = (
     Path(__file__).resolve().parents[4]
     / "checkpoints"
     / "video"
-    / "epoch_11_model_only.pt"
+    / "video_v1_round4.pt"  # round 4 fine-tune (live 2026-10-14); epoch_11_model_only.pt kept beside it as rollback
 )
 
 

@@ -52,6 +52,8 @@ def _is_audio(head: bytes) -> bool:
         return True
     if head.startswith(b"fLaC"):                                           # FLAC
         return True
+    if head.startswith(b"OggS"):                                           # Ogg (Opus / Vorbis)
+        return True
     if head.startswith(b"ID3"):                                            # MP3 with an ID3v2 tag
         return True
     if len(head) >= 2 and head[0] == 0xFF and (head[1] & 0xE0) == 0xE0:    # MPEG audio frame sync (MP3/AAC)

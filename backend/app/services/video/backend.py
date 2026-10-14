@@ -1,6 +1,6 @@
 """Swappable video-model backend (Review-2 prep, Priority 6).
 
-Video Model v1 (EfficientNet-B0, epoch 11) is now the active production
+Video Model v1 (EfficientNet-B0; round-4 fine-tune since 2026-10-14, epoch 11 before) is the active production
 backend -- see VideoModelV1Backend below. It was verified line-by-line
 against the recovered original Celeb-DF-v2 evaluator (frame sampling,
 Haar face detection, 20% padding, center-square/empty-crop fallback, PIL
@@ -25,7 +25,10 @@ import os
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
+import cv2
+
 from app.core.config import settings
+from app.services.calibration import calibrate, min_short_side_px
 from app.services.detection_errors import UnprocessableMediaError
 from app.services.detection_interface import DetectionResult
 from app.services.heuristics import analyze_video, clamp01
@@ -102,20 +105,20 @@ class VideoModelV1Backend:
     request.
 
     confidence is passed through exactly as the verified protocol
-    computes it (the raw sigmoid probability). The verdict is banded
-    +-0.2 around the evaluated 0.525 threshold via _band_verdict, the
-    same margin already used by HeuristicVideoBackend and by the image/
-    audio detectors -- added post-Review-2-eve per explicit user request,
-    since real-world (non-Celeb-DF-v2) footage regularly lands close to
-    0.525 and a forced binary call there reads as false confidence. The
-    0.525 threshold value itself is unchanged; only the surrounding
-    decision band is new. This does NOT fix a confidently-wrong
-    prediction far from the threshold -- it only stops genuinely
-    borderline scores from being forced to a hard REAL/FAKE.
+    computes it (the raw sigmoid probability) - eval relies on that.
+
+    Verdict (changed 2026-10-10, CLAUDE.md section 26): the raw score is
+    Platt-rescaled (app/core/calibration.json "video") and banded +-0.2
+    around 0.5 on that calibrated scale. The model's raw scores sit almost
+    entirely in 0.2-0.7, so the old +-0.2 band around the raw 0.525 made
+    98% of videos UNCERTAIN and FAKE unreachable even where the model ranks
+    well (RTFS AUC 0.92). Videos whose short side is below the configured
+    minimum (360 px) are always UNCERTAIN: accuracy was measured to collapse
+    on small footage. With no calibration configured the old raw band is used.
     """
 
     metadata = VideoModelMetadata(
-        name="TruthLens Video Model v1 (EfficientNet-B0, epoch 11)",
+        name="TruthLens Video Model v1 (EfficientNet-B0, round 4)",
         architecture="EfficientNet-B0, 16-frame mean-logit pooling",
         checkpoint_path=str(model_v1_common.resolve_checkpoint_path()),
         validated=True,
@@ -134,7 +137,16 @@ class VideoModelV1Backend:
                 "corrupted, or in an unsupported format."
             ) from e
 
-        verdict = _band_verdict(result.probability, model_v1_common.THRESHOLD)
+        calibrated = calibrate(result.probability, "video")
+        short_side = _short_side_px(path)
+        min_side = min_short_side_px("video")
+        low_resolution = bool(min_side and short_side and short_side < min_side)
+        if calibrated is None:
+            verdict = _band_verdict(result.probability, model_v1_common.THRESHOLD)
+        elif low_resolution:
+            verdict = "UNCERTAIN"
+        else:
+            verdict = _band_verdict(calibrated, 0.5)
 
         return DetectionResult(
             verdict=verdict,
@@ -145,8 +157,21 @@ class VideoModelV1Backend:
                 "structure": result.probability,
                 "windows": len(result.frame_logits),
                 "frames_with_face": result.frames_with_face,
+                "calibrated": calibrated,
+                "short_side_px": short_side,
+                "low_resolution": low_resolution,
             },
         )
+
+
+def _short_side_px(path: str) -> int | None:
+    """Smaller of the stored frame width/height (container metadata only, no decode)."""
+    cap = cv2.VideoCapture(path)
+    try:
+        w, h = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    finally:
+        cap.release()
+    return min(w, h) if w > 0 and h > 0 else None
 
 
 class CnnGruV5Backend:
@@ -211,7 +236,7 @@ class VideoModelV1RotationAwareBackend:
     """
 
     metadata = VideoModelMetadata(
-        name="TruthLens Video Model v1 (EfficientNet-B0, epoch 11) + orientation fallback",
+        name="TruthLens Video Model v1 (EfficientNet-B0, round 4) + orientation fallback",
         architecture="EfficientNet-B0, 16-frame mean-logit pooling, Haar rotation fallback",
         checkpoint_path=str(model_v1_common.resolve_checkpoint_path()),
         validated=False,
@@ -256,7 +281,7 @@ class VideoModelV1ConsensusBackend:
     """
 
     metadata = VideoModelMetadata(
-        name="TruthLens Video Model v1 (EfficientNet-B0, epoch 11) + cascade consensus",
+        name="TruthLens Video Model v1 (EfficientNet-B0, round 4) + cascade consensus",
         architecture="EfficientNet-B0, 16-frame mean-logit pooling, cross-cascade face consensus",
         checkpoint_path=str(model_v1_common.resolve_checkpoint_path()),
         validated=False,
@@ -297,7 +322,7 @@ class VideoModelV1WidePadBackend:
     """
 
     metadata = VideoModelMetadata(
-        name="TruthLens Video Model v1 (EfficientNet-B0, epoch 11) + wide face padding",
+        name="TruthLens Video Model v1 (EfficientNet-B0, round 4) + wide face padding",
         architecture="EfficientNet-B0, 16-frame mean-logit pooling, 35% face-crop padding",
         checkpoint_path=str(model_v1_common.resolve_checkpoint_path()),
         validated=False,

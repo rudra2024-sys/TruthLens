@@ -32,7 +32,7 @@ Measured on the development machine (CPU only, after the models were loaded and 
 
 ## 3. Get the models onto the server
 1. Upload these three files to a folder you control, keeping their names (their SHA-256 sums are in `models/CHECKSUMS.sha256`):
-   `convnext_tiny_diversified_v2.pth`, `clip_head_round3_portrait_app.pth`, `epoch_11_model_only.pt`.
+   `convnext_tiny_diversified_v2.pth`, `clip_head_round3_portrait_app.pth`, `video_v1_round4.pt`.
 2. On the server, from the repo root:
    ```bash
    python3 backend/scripts/fetch_checkpoints.py --base-url https://YOUR-HOST/truthlens-models/
