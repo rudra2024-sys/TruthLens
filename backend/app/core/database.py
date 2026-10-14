@@ -48,6 +48,14 @@ _LIGHT_MIGRATIONS = [
     "ALTER TABLE monitoring_checks ADD COLUMN landmarks_json TEXT",
     "ALTER TABLE monitoring_checks ADD COLUMN image_width INTEGER",
     "ALTER TABLE monitoring_checks ADD COLUMN image_height INTEGER",
+    "ALTER TABLE face_references ADD COLUMN consent_given_at TEXT",
+    "ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'user'",
+    "ALTER TABLE monitoring_sessions ADD COLUMN initial_user_agent TEXT",
+    "ALTER TABLE users ADD COLUMN organization_id TEXT",
+    "ALTER TABLE users ADD COLUMN join_code TEXT",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_join_code ON users(join_code)",
+    "ALTER TABLE monitoring_sessions ADD COLUMN organization_id TEXT",
+    "ALTER TABLE face_references ADD COLUMN government_id_verified BOOLEAN DEFAULT 0",
 ]
 
 

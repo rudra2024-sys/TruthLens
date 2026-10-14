@@ -208,9 +208,20 @@ export const getProvenance = async (uploadId) => {
 
 // Identity-match: enroll a reference photo, then compare a later live-captured frame against
 // it. GET resolves to null when nothing has been enrolled yet, same convention as feedback.
-export const enrollIdentityReference = async (uploadId) => {
+export const enrollIdentityReference = async (uploadId, consent) => {
   try {
-    return (await api.post('/identity/reference', { upload_id: uploadId })).data
+    return (await api.post('/identity/reference', { upload_id: uploadId, consent })).data
+  } catch (err) {
+    throw new Error(friendlyError(err))
+  }
+}
+
+// Transient-use government-ID verification (added 2026-10-12) -- the uploaded ID photo is
+// deleted server-side immediately after use, success or failure; only the resulting face
+// embedding is kept. See identity.py::post_verify_government_id.
+export const verifyGovernmentId = async (uploadId, consent) => {
+  try {
+    return (await api.post('/identity/verify-government-id', { upload_id: uploadId, consent })).data
   } catch (err) {
     throw new Error(friendlyError(err))
   }
@@ -240,6 +251,160 @@ export const matchIdentity = async (uploadId) => {
   }
 }
 
+// Organisation linking (added 2026-10-12) -- a student joins via a private join code before
+// enrollment is allowed; GET resolves to null when not yet linked, same null-means-unset
+// convention as getIdentityReference above.
+export const joinOrganization = async (joinCode) => {
+  try {
+    return (await api.post('/identity/organization', { join_code: joinCode })).data
+  } catch (err) {
+    throw new Error(friendlyError(err))
+  }
+}
+
+export const getMyOrganization = async () => {
+  try {
+    return (await api.get('/identity/organization')).data
+  } catch (err) {
+    throw new Error(friendlyError(err))
+  }
+}
+
+export const getOrganizationJoinCode = async () => {
+  try {
+    return (await api.get('/admin/join-code')).data
+  } catch (err) {
+    throw new Error(friendlyError(err))
+  }
+}
+
+export const regenerateOrganizationJoinCode = async () => {
+  try {
+    return (await api.post('/admin/join-code/regenerate')).data
+  } catch (err) {
+    throw new Error(friendlyError(err))
+  }
+}
+
+// The current user's own past monitoring sessions (added 2026-10-12).
+export const getMySessions = async () => {
+  try {
+    return (await api.get('/identity/sessions')).data
+  } catch (err) {
+    throw new Error(friendlyError(err))
+  }
+}
+
+// Proctored MCQ exams (added 2026-10-12) -- org-authored, taken inside TruthLens itself with
+// continuous monitoring. See backend/app/api/routes/exams.py.
+export const createExam = async (title, passThreshold, maxFlags) => {
+  try {
+    return (await api.post('/exams', { title, pass_threshold: passThreshold, max_flags: maxFlags })).data
+  } catch (err) {
+    throw new Error(friendlyError(err))
+  }
+}
+
+export const getMyExams = async () => {
+  try {
+    return (await api.get('/exams')).data
+  } catch (err) {
+    throw new Error(friendlyError(err))
+  }
+}
+
+export const updateExam = async (examId, title, passThreshold, maxFlags) => {
+  try {
+    return (await api.patch(`/exams/${examId}`, { title, pass_threshold: passThreshold, max_flags: maxFlags })).data
+  } catch (err) {
+    throw new Error(friendlyError(err))
+  }
+}
+
+export const addExamQuestion = async (examId, text, options, correctOptionIndex) => {
+  try {
+    return (await api.post(`/exams/${examId}/questions`, {
+      text, options, correct_option_index: correctOptionIndex,
+    })).data
+  } catch (err) {
+    throw new Error(friendlyError(err))
+  }
+}
+
+export const getExamQuestionsAdmin = async (examId) => {
+  try {
+    return (await api.get(`/exams/${examId}/questions/admin`)).data
+  } catch (err) {
+    throw new Error(friendlyError(err))
+  }
+}
+
+export const deleteExamQuestion = async (examId, questionId) => {
+  try {
+    await api.delete(`/exams/${examId}/questions/${questionId}`)
+  } catch (err) {
+    throw new Error(friendlyError(err))
+  }
+}
+
+export const getExam = async (examId) => {
+  try {
+    return (await api.get(`/exams/${examId}`)).data
+  } catch (err) {
+    throw new Error(friendlyError(err))
+  }
+}
+
+export const getExamQuestions = async (examId) => {
+  try {
+    return (await api.get(`/exams/${examId}/questions`)).data
+  } catch (err) {
+    throw new Error(friendlyError(err))
+  }
+}
+
+export const startExamAttempt = async (examId, details = {}) => {
+  try {
+    return (await api.post(`/exams/${examId}/attempts`, { details })).data
+  } catch (err) {
+    throw new Error(friendlyError(err))
+  }
+}
+
+export const getExamAttempt = async (attemptId) => {
+  try {
+    return (await api.get(`/exams/attempts/${attemptId}`)).data
+  } catch (err) {
+    throw new Error(friendlyError(err))
+  }
+}
+
+export const submitExamAnswer = async (attemptId, questionId, selectedOptionIndex) => {
+  try {
+    return (await api.post(`/exams/attempts/${attemptId}/answers`, {
+      question_id: questionId, selected_option_index: selectedOptionIndex,
+    })).data
+  } catch (err) {
+    throw new Error(friendlyError(err))
+  }
+}
+
+export const finishExamAttempt = async (attemptId) => {
+  try {
+    return (await api.post(`/exams/attempts/${attemptId}/finish`)).data
+  } catch (err) {
+    throw new Error(friendlyError(err))
+  }
+}
+
+export const getExamAttemptsAdmin = async (examId) => {
+  try {
+    return (await api.get(`/admin/exams/${examId}/attempts`)).data
+  } catch (err) {
+    throw new Error(friendlyError(err))
+  }
+}
+
 // Continuous monitoring: periodic identity/deepfake/presence checks within a session, any of
 // which can flag independently -- including a check that flags even when identity matches.
 export const startMonitoringSession = async () => {
@@ -256,6 +421,33 @@ export const submitMonitoringCheck = async (sessionId, uploadId, audioUploadId) 
       upload_id: uploadId,
       audio_upload_id: audioUploadId,
     })).data
+  } catch (err) {
+    const e = new Error(friendlyError(err))
+    e.status = err?.response?.status
+    throw e
+  }
+}
+
+// Background check jobs (added 2026-10-11, item 6) -- same start/poll shape as
+// startDetectionJob/getJob above, sized for a monitoring session's per-tick check instead of a
+// one-off video scan. The finished check is embedded in the job itself (job.result), no separate
+// fetch needed.
+export const startMonitoringCheckJob = async (sessionId, uploadId, audioUploadId) => {
+  try {
+    return (await api.post(`/identity/sessions/${sessionId}/checks/jobs`, {
+      upload_id: uploadId,
+      audio_upload_id: audioUploadId,
+    })).data
+  } catch (err) {
+    const e = new Error(friendlyError(err))
+    e.status = err?.response?.status
+    throw e
+  }
+}
+
+export const getMonitoringCheckJob = async (sessionId, jobId) => {
+  try {
+    return (await api.get(`/identity/sessions/${sessionId}/checks/jobs/${jobId}`)).data
   } catch (err) {
     const e = new Error(friendlyError(err))
     e.status = err?.response?.status
@@ -314,6 +506,63 @@ export const downloadSessionReport = async (sessionId) => {
   }
 }
 
+// Admin/proctor dashboard (added 2026-10-11) -- every call here 403s unless the signed-in
+// account has role "admin" (see backend/scripts/promote_admin.py, the only way to get it).
+export const getAdminSessions = async ({ flaggedOnly = false, limit = 50, offset = 0 } = {}) => {
+  try {
+    return (await api.get('/admin/sessions', {
+      params: { flagged_only: flaggedOnly, limit, offset },
+    })).data
+  } catch (err) {
+    throw new Error(friendlyError(err))
+  }
+}
+
+export const getAdminSessionDetail = async (sessionId) => {
+  try {
+    return (await api.get(`/admin/sessions/${sessionId}`)).data
+  } catch (err) {
+    throw new Error(friendlyError(err))
+  }
+}
+
+export const downloadAdminSessionReport = async (sessionId) => {
+  try {
+    const response = await api.get(`/admin/sessions/${sessionId}/report`, { responseType: 'blob' })
+    const disposition = response.headers['content-disposition'] || ''
+    const match = disposition.match(/filename="?([^";]+)"?/)
+    const filename = match ? match[1] : `truthlens-session-report-${sessionId}.pdf`
+    const blobUrl = window.URL.createObjectURL(response.data)
+    const link = document.createElement('a')
+    link.href = blobUrl
+    link.download = filename
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    window.URL.revokeObjectURL(blobUrl)
+  } catch (err) {
+    throw new Error(friendlyError(err))
+  }
+}
+
+// Organisation roster (added 2026-10-12) -- the students currently linked to this organisation,
+// separate from the session list since a student with zero sessions yet still belongs here.
+export const getRoster = async () => {
+  try {
+    return (await api.get('/admin/roster')).data
+  } catch (err) {
+    throw new Error(friendlyError(err))
+  }
+}
+
+export const removeFromRoster = async (userId) => {
+  try {
+    await api.delete(`/admin/roster/${userId}`)
+  } catch (err) {
+    throw new Error(friendlyError(err))
+  }
+}
+
 export const getUpload = async (uploadId) => {
   try {
     return await api.get(`/upload/${uploadId}`)
@@ -348,12 +597,13 @@ export const downloadReport = async (uploadId) => {
   }
 }
 
-export const signup = async (name, email, password) => {
+export const signup = async (name, email, password, accountType) => {
   try {
     return await api.post('/auth/signup', {
       name,
       email,
       password,
+      account_type: accountType,
     })
   } catch (err) {
     throw new Error(friendlyError(err))
@@ -402,6 +652,7 @@ export const saveAuth = (authData) => {
       user_id: authData.user_id,
       name: authData.name,
       email: authData.email,
+      role: authData.role,
     })
   )
 }

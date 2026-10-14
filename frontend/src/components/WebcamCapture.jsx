@@ -10,7 +10,7 @@ import { Camera, X } from 'lucide-react'
  * capture — otherwise the browser's camera recording indicator stays on indefinitely, which
  * is the one easy-to-miss correctness bug with this kind of component.
  */
-export default function WebcamCapture({ onCapture, onCancel, className = '' }) {
+export default function WebcamCapture({ onCapture, onCancel, className = '', facingMode = 'user', mirror = true }) {
   const videoRef = useRef(null)
   const streamRef = useRef(null)
   const [error, setError] = useState(null)
@@ -25,7 +25,7 @@ export default function WebcamCapture({ onCapture, onCancel, className = '' }) {
         return
       }
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } })
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode } })
         if (cancelled) {
           stream.getTracks().forEach((t) => t.stop())
           return
@@ -100,7 +100,7 @@ export default function WebcamCapture({ onCapture, onCancel, className = '' }) {
       ) : (
         <div className="flex flex-col items-center gap-5">
           <div className="relative w-full max-w-[360px] aspect-[4/3] bg-ground border border-line rounded-[4px] overflow-hidden">
-            <video ref={videoRef} muted playsInline className="w-full h-full object-cover scale-x-[-1]" />
+            <video ref={videoRef} muted playsInline className={`w-full h-full object-cover ${mirror ? 'scale-x-[-1]' : ''}`} />
             {!ready && (
               <div className="absolute inset-0 flex items-center justify-center text-bone-faint text-[12px]">
                 Requesting camera…

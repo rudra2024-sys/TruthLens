@@ -1,3 +1,5 @@
+from typing import Literal
+
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, EmailStr
@@ -25,6 +27,10 @@ class SignupRequest(BaseModel):
     name: str
     email: EmailStr
     password: str
+    # Chosen on the real signup form with no default pre-selected (the user must actively pick
+    # one) -- defaults to "student" here only as a safety net for callers that don't care about
+    # account type (this project's own test suite signs up dozens of throwaway accounts).
+    account_type: Literal["student", "organization"] = "student"
 
 
 class LoginRequest(BaseModel):
@@ -38,12 +44,14 @@ class AuthResponse(BaseModel):
     user_id: str
     name: str
     email: str
+    role: str = "user"
 
 
 class UserOut(BaseModel):
     user_id: str
     name: str
     email: str
+    role: str = "user"
 
     class Config:
         from_attributes = True
@@ -77,6 +85,7 @@ async def signup(
         name=request.name.strip(),
         email=email,
         password_hash=hash_password(request.password),
+        role=request.account_type,
     )
 
     db.add(user)
@@ -91,6 +100,7 @@ async def signup(
         user_id=user.user_id,
         name=user.name,
         email=user.email,
+        role=user.role,
     )
 
 
@@ -136,6 +146,7 @@ async def login(
         user_id=user.user_id,
         name=user.name,
         email=user.email,
+        role=user.role,
     )
 
 
@@ -173,6 +184,18 @@ async def get_current_user(
         )
 
     return user
+
+
+async def get_current_organization(
+    current_user: User = Depends(get_current_user),
+) -> User:
+    """Gate for the organisation/proctor dashboard (added 2026-10-11, self-serve via signup's
+    account_type since 2026-10-12). Also accepts the legacy role value "admin" -- this column's
+    first version, before account_type existed, only ever set that value via
+    scripts/promote_admin.py, and an already-promoted account should keep working."""
+    if current_user.role not in ("organization", "admin"):
+        raise HTTPException(status_code=403, detail="Organisation access required.")
+    return current_user
 
 
 @router.get("/me", response_model=UserOut)

@@ -25,6 +25,9 @@ const SignUp = lazy(() => import('./SignUp'))
 const ReportDetail = lazy(() => import('./ReportDetail'))
 const IdentityMatch = lazy(() => import('./IdentityMatch'))
 const MonitoringSession = lazy(() => import('./MonitoringSession'))
+const Admin = lazy(() => import('./Admin'))
+const ExamAttempt = lazy(() => import('./ExamAttempt'))
+const ExamResult = lazy(() => import('./ExamResult'))
 const NotFound = lazy(() => import('./NotFound'))
 
 const ProtectedRoute = ({ children }) => {
@@ -45,6 +48,20 @@ const GuestRoute = ({ children }) => {
   const { user, checking } = useAuth()
   if (checking) return null
   if (user) {
+    return <Navigate to="/" replace />
+  }
+  return children
+}
+
+const AdminRoute = ({ children }) => {
+  const { user, checking } = useAuth()
+  if (checking) {
+    return <LoadingState label="Verifying access" layout="screen" size="sm" />
+  }
+  if (!user) {
+    return <Navigate to="/login" replace />
+  }
+  if (user.role !== 'organization' && user.role !== 'admin') {
     return <Navigate to="/" replace />
   }
   return children
@@ -209,6 +226,30 @@ function AnimatedRoutes() {
           <ProtectedRoute>
             <Layout><PageTransition pathKey={p}><MonitoringSession /></PageTransition></Layout>
           </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/exams/:examId/take"
+        element={
+          <ProtectedRoute>
+            <Layout><PageTransition pathKey={p}><ExamAttempt /></PageTransition></Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/exams/attempts/:attemptId/result"
+        element={
+          <ProtectedRoute>
+            <Layout><PageTransition pathKey={p}><ExamResult /></PageTransition></Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/admin"
+        element={
+          <AdminRoute>
+            <Layout><PageTransition pathKey={p}><Admin /></PageTransition></Layout>
+          </AdminRoute>
         }
       />
       <Route path="*" element={<Layout><PageTransition pathKey={p}><NotFound /></PageTransition></Layout>} />

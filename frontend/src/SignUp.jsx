@@ -2,16 +2,64 @@ import React, { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence, useAnimationControls } from 'framer-motion'
 import useReducedMotion from './hooks/useReducedMotion'
-import { User, Mail, Lock, AlertCircle } from 'lucide-react'
+import { User, Mail, Lock, AlertCircle, GraduationCap, Building2 } from 'lucide-react'
 import { signup, saveAuth } from './api/client'
 import { useAuth } from './context/AuthContext'
 import AuthField from './components/AuthField'
 import Logo from './Logo'
 
+const ACCOUNT_TYPES = [
+  {
+    value: 'student',
+    label: 'Student',
+    icon: GraduationCap,
+    description: 'Enroll your identity and take proctored sessions.',
+  },
+  {
+    value: 'organization',
+    label: 'Organisation',
+    icon: Building2,
+    description: 'Review monitoring sessions across your students.',
+  },
+]
+
+function AccountTypePicker({ value, onChange }) {
+  return (
+    <div>
+      <p className="text-[11px] font-medium tracking-[0.08em] uppercase text-bone-dim mb-3">
+        I am a...
+      </p>
+      <div className="grid grid-cols-2 gap-3">
+        {ACCOUNT_TYPES.map(({ value: v, label, icon: Icon, description }) => {
+          const selected = value === v
+          return (
+            <button
+              key={v}
+              type="button"
+              onClick={() => onChange(v)}
+              aria-pressed={selected}
+              className={`text-left p-4 rounded-[4px] border transition-colors duration-300 ${
+                selected
+                  ? 'border-brass bg-[rgba(200,147,97,0.06)]'
+                  : 'border-line hover:border-line-strong'
+              }`}
+            >
+              <Icon size={18} strokeWidth={1.5} className={selected ? 'text-brass' : 'text-bone-faint'} />
+              <p className={`text-[13px] font-medium mt-2 ${selected ? 'text-brass' : 'text-bone'}`}>{label}</p>
+              <p className="text-[11px] text-bone-dim mt-1 leading-snug">{description}</p>
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 export default function SignUp() {
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [accountType, setAccountType] = useState(null)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const controls = useAnimationControls()
@@ -25,13 +73,14 @@ export default function SignUp() {
 
   const handleSubmit = async (e) => {
     e.preventDefault()
+    if (!accountType) return
     setError('')
     setLoading(true)
     try {
-      const response = await signup(name, email, password)
+      const response = await signup(name, email, password, accountType)
       saveAuth(response.data)
       refresh()
-      navigate('/')
+      navigate(response.data.role === 'organization' || response.data.role === 'admin' ? '/admin' : '/dashboard')
     } catch (err) {
       setError(err.message)
       if (!reduced) controls.start({ x: [0, -8, 8, -5, 5, 0], transition: { duration: 0.45 } })
@@ -82,6 +131,8 @@ export default function SignUp() {
               placeholder="At least 8 characters" autoComplete="new-password"
             />
 
+            <AccountTypePicker value={accountType} onChange={setAccountType} />
+
             <AnimatePresence>
               {error && (
                 <motion.div
@@ -100,7 +151,7 @@ export default function SignUp() {
 
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || !accountType}
               className="w-full px-6 py-3.5 bg-brass text-ground rounded-[3px] text-[13px] font-medium tracking-[0.08em] uppercase btn-lift disabled:opacity-50 disabled:pointer-events-none"
             >
               {loading ? 'Creating account…' : 'Create Account'}

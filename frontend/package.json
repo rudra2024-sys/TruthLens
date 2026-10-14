@@ -7,6 +7,7 @@
     "build": "vite build"
   },
   "dependencies": {
+    "@mediapipe/tasks-vision": "^0.10.35",
     "axios": "^1.7.2",
     "framer-motion": "^11.18.2",
     "gsap": "^3.15.0",

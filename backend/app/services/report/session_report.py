@@ -8,6 +8,8 @@ serves it directly), and best-effort try/except per section.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import os
 from collections import Counter
@@ -50,6 +52,8 @@ REASON_LABELS = {
     "looking_away": "Looking away",
     "talking_detected": "Talking detected",
     "object_detected": "Unauthorized object detected",
+    "device_mismatch_suspected": "Possible device change",
+    "static_image_suspected": "Possible static photo detected",
 }
 
 # How much a check's mouth-corner width has to change (as a fraction of the session's own
@@ -94,6 +98,49 @@ def _plain_summary_sentence(session: MonitoringSession, checks: list[MonitoringC
     if top:
         sentence += f" The most common reason was “{top}”."
     return sentence
+
+
+def _compute_integrity_hash(
+    session: MonitoringSession, checks: list[MonitoringCheck], events: list[MonitoringEvent]
+) -> str:
+    """A SHA-256 hash over the session's own recorded check/event data -- not a cryptographic
+    signature (no signing key exists in this codebase), but it lets a later dispute recompute the
+    same hash from the database and confirm this report matches the underlying records rather
+    than having been edited after the fact. Stdlib only (hashlib/json), no new dependency.
+
+    Deliberately builds an explicit, ordered structure from named fields rather than hashing the
+    ORM objects directly -- stable across SQLAlchemy attribute-ordering or schema additions that
+    don't touch these specific fields, and json.dumps(..., sort_keys=True) makes key order
+    irrelevant too.
+    """
+    payload = {
+        "session_id": session.session_id,
+        "started_at": session.started_at,
+        "ended_at": session.ended_at,
+        "checks": [
+            {
+                "check_id": c.check_id,
+                "checked_at": c.checked_at,
+                "face_count": c.face_count,
+                "identity_verdict": c.identity_verdict,
+                "fake_probability": c.fake_probability,
+                "flagged": c.flagged,
+                "flag_reasons": c.flag_reasons,
+            }
+            for c in checks
+        ],
+        "events": [
+            {
+                "event_id": e.event_id,
+                "occurred_at": e.occurred_at,
+                "event_type": e.event_type,
+                "detail": e.detail,
+            }
+            for e in events
+        ],
+    }
+    canonical = json.dumps(payload, sort_keys=True)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 def _parse_iso(ts: str | None):
@@ -313,9 +360,23 @@ def generate_session_report(
         "elsewhere in TruthLens, and count faces in frame. Behavioral events (tab/window "
         "focus, clipboard, devtools, camera interruption) only ever see activity inside the "
         "browser tab this session ran in -- a second device, a different browser, or "
-        "activity in a separate tab are invisible to them. Nothing here is proof of "
-        "misconduct on its own; it is a record for human review.",
+        "activity in a separate tab are invisible to them. \"Possible static photo detected\" "
+        "is a motion heuristic, not blink-based liveness detection -- MTCNN's landmarks have no "
+        "eyelid points to detect a blink with. Nothing here is proof of misconduct on its own; "
+        "it is a record for human review.",
     )
+
+    integrity_hash = _compute_integrity_hash(session, checks, events)
+    elements.append(Spacer(1, 0.3 * cm))
+    elements.append(Paragraph(
+        f"<b>Record Integrity Hash:</b> {integrity_hash}", small,
+    ))
+    elements.append(Paragraph(
+        "A SHA-256 hash of this session's own recorded check and event data -- not a "
+        "cryptographic signature, but it can be recomputed from the database at any time to "
+        "confirm this report matches the underlying records and was not edited after the fact.",
+        small,
+    ))
 
     doc.build(elements)
     return path

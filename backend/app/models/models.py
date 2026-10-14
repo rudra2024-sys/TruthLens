@@ -42,7 +42,29 @@ class User(Base):
         String,
         default=lambda: datetime.utcnow().isoformat(),
     )
-    
+
+    # Account type, chosen at signup (added 2026-10-11, extended 2026-10-12 to a real two-sided
+    # account system): "student" (default -- enrolls their own identity, takes proctored
+    # sessions) or "organization" (reviews monitoring sessions across students, via /admin; see
+    # auth.py::get_current_organization). The legacy value "admin" from this column's first,
+    # manual-promotion-only version (scripts/promote_admin.py) is still accepted as equivalent to
+    # "organization" wherever this is checked, so an already-promoted account keeps working.
+    role: Mapped[str] = mapped_column(String, default="student", nullable=False)
+
+    # Real multi-tenancy (added 2026-10-12). Organisations are just User rows with
+    # role="organization" (or legacy "admin") -- no separate Organization table, matching this
+    # file's existing "no ORM relationship() anywhere, plain FK columns only" convention.
+    # `organization_id` is meaningful only on student rows: which organisation they've linked to
+    # via that organisation's join_code (app/services/join_code.py), set by
+    # identity.py::join_organization, gating enrollment (identity.py::post_reference). Changing
+    # it later ("switching organisations") is allowed on purpose -- see MonitoringSession.
+    # organization_id below for why that doesn't retroactively move past sessions.
+    # `join_code` is meaningful only on organisation rows: their own private code, lazily
+    # generated on first GET /admin/join-code rather than at signup, so both brand-new orgs and
+    # organisation accounts that signed up before this feature existed are handled uniformly.
+    organization_id: Mapped[str | None] = mapped_column(String, ForeignKey("users.user_id"), nullable=True)
+    join_code: Mapped[str | None] = mapped_column(String, nullable=True, unique=True, index=True)
+
 class Upload(Base):
     __tablename__ = "uploads"
     upload_id:   Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
@@ -197,6 +219,18 @@ class FaceReference(Base):
     upload_id:    Mapped[str] = mapped_column(String, ForeignKey("uploads.upload_id"))
     embedding_json: Mapped[str] = mapped_column(String, nullable=False)
     enrolled_at:  Mapped[str] = mapped_column(String, default=lambda: datetime.utcnow().isoformat())
+    # Set whenever POST /identity/reference succeeds (added 2026-10-11) -- the route rejects the
+    # request before this point unless the caller explicitly passed consent: true, so this column
+    # existing at all is itself the record of that consent having been given, not just a flag.
+    consent_given_at: Mapped[str | None] = mapped_column(String, nullable=True)
+    # True only when this reference was created via POST /identity/verify-government-id rather
+    # than a plain selfie upload (added 2026-10-12) -- exam-attempt-start requires this
+    # specifically (see app/services/exams/attempts.py::start_attempt). Note: for an ID-verified
+    # reference, upload_id above may point at an already-deleted Upload (the ID photo is purged
+    # immediately after use, see detector.py::verify_government_id) -- confirmed nothing in this
+    # codebase ever re-fetches an existing reference's upload file, only enroll_reference does on
+    # first creation, so this is safe in practice.
+    government_id_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
 
 class IdentityMatchResult(Base):
@@ -230,6 +264,18 @@ class MonitoringSession(Base):
     # since there's no labeled head-pose dataset here to calibrate a universal one against.
     baseline_yaw:   Mapped[float | None] = mapped_column(Float, nullable=True)
     baseline_pitch: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # Set once, from the session's first check -- later checks whose User-Agent header differs
+    # flag device_mismatch_suspected (added 2026-10-11, item 7). A real but imperfect signal: a
+    # second browser posting into the same session triggers it, but so does the same person
+    # switching browsers mid-session -- see monitoring.py's run_check for the full caveat.
+    initial_user_agent: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Snapshot of the student's User.organization_id at session-creation time (added 2026-10-12),
+    # NOT a live join -- admin.py's dashboard queries filter on this column, not on a live
+    # User.organization_id lookup. Deliberate: if a student later re-links to a different
+    # organisation, this keeps every already-created session visible only to the organisation
+    # that was actually linked when it ran. Without this, switching organisations would silently
+    # move a student's entire monitoring history to the new organisation's dashboard.
+    organization_id: Mapped[str | None] = mapped_column(String, ForeignKey("users.user_id"), nullable=True)
 
 
 class MonitoringCheck(Base):
@@ -355,3 +401,84 @@ class AuditLogEntry(Base):
     detail:     Mapped[str | None] = mapped_column(String, nullable=True)
     ip_address: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[str] = mapped_column(String, default=lambda: datetime.utcnow().isoformat())
+
+
+class Exam(Base):
+    """A multiple-choice exam belonging to one organisation (added 2026-10-12). Questions:
+    ExamQuestion.exam_id. Attempts: ExamAttempt.exam_id. No relationship() -- plain FK columns,
+    same convention as every model in this file below FaceReference."""
+    __tablename__ = "exams"
+
+    exam_id:         Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    organization_id: Mapped[str] = mapped_column(String, ForeignKey("users.user_id"), index=True)
+    title:           Mapped[str] = mapped_column(String, nullable=False)
+    pass_threshold:  Mapped[int] = mapped_column(Integer, nullable=False)
+    # Flag limit before a running attempt is auto-terminated server-side (added 2026-10-12, see
+    # app/services/exams/enforcement.py) -- not merely advisory, this is the actual enforcement
+    # threshold.
+    max_flags:       Mapped[int] = mapped_column(Integer, default=4, nullable=False)
+    is_active:       Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at:      Mapped[str] = mapped_column(String, default=lambda: datetime.utcnow().isoformat())
+
+
+class ExamQuestion(Base):
+    """One multiple-choice question within an Exam. options_json is a JSON-encoded list[str],
+    decoded via the options property -- same convention as MonitoringCheck.flag_reasons/
+    object_detections. correct_option_index must never be serialized to a student mid-exam --
+    see schemas.py's ExamQuestionPublicOut vs ExamQuestionAdminOut."""
+    __tablename__ = "exam_questions"
+
+    question_id:          Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    exam_id:              Mapped[str] = mapped_column(String, ForeignKey("exams.exam_id"), index=True)
+    order_index:          Mapped[int] = mapped_column(Integer, nullable=False)
+    text:                 Mapped[str] = mapped_column(String, nullable=False)
+    options_json:         Mapped[str] = mapped_column(String, nullable=False)
+    correct_option_index: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    @property
+    def options(self) -> list[str]:
+        return json.loads(self.options_json)
+
+
+class ExamAttempt(Base):
+    """One student's attempt at one exam (added 2026-10-12), 1:1 with the MonitoringSession that
+    proctored it (session_id unique) -- this is the key reuse point, giving this feature the
+    entire existing proctoring pipeline (periodic checks, live attention monitoring, behavioral
+    events) for free instead of building a parallel one. organization_id is a denormalized
+    snapshot at attempt-start, same pattern and justification as MonitoringSession.
+    organization_id -- admin.py's queries filter a direct column everywhere else in this
+    codebase, never join up to find one, and start_attempt() already validates the org match
+    before creating this row, so there's no real drift risk, just query-shape consistency.
+    status is one of: in_progress, passed, failed, terminated_for_flags."""
+    __tablename__ = "exam_attempts"
+
+    attempt_id:      Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    exam_id:         Mapped[str] = mapped_column(String, ForeignKey("exams.exam_id"), index=True)
+    user_id:         Mapped[str] = mapped_column(String, ForeignKey("users.user_id"), index=True)
+    session_id:      Mapped[str] = mapped_column(String, ForeignKey("monitoring_sessions.session_id"), unique=True, index=True)
+    organization_id: Mapped[str] = mapped_column(String, ForeignKey("users.user_id"), index=True)
+    started_at:      Mapped[str] = mapped_column(String, default=lambda: datetime.utcnow().isoformat())
+    ended_at:        Mapped[str | None] = mapped_column(String, nullable=True)
+    status:          Mapped[str] = mapped_column(String, default="in_progress", nullable=False)
+    score:           Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Free-form "fill out details" fields captured at attempt-start (e.g. roll number) -- a
+    # simple JSON blob rather than a rigid schema, decoded via the details property below.
+    details_json:    Mapped[str] = mapped_column(String, default="{}")
+
+    @property
+    def details(self) -> dict:
+        return json.loads(self.details_json)
+
+
+class ExamAnswer(Base):
+    """A student's selected option for one question within one attempt (added 2026-10-12).
+    Upsert semantics via the unique constraint -- re-answering a question updates in place,
+    same convention as Feedback's uq_feedback_upload_user."""
+    __tablename__ = "exam_answers"
+    __table_args__ = (UniqueConstraint("attempt_id", "question_id", name="uq_exam_answer_attempt_question"),)
+
+    answer_id:             Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    attempt_id:            Mapped[str] = mapped_column(String, ForeignKey("exam_attempts.attempt_id"), index=True)
+    question_id:           Mapped[str] = mapped_column(String, ForeignKey("exam_questions.question_id"))
+    selected_option_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    answered_at:           Mapped[str] = mapped_column(String, default=lambda: datetime.utcnow().isoformat())

@@ -1,32 +1,16 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Download, ShieldAlert, ShieldCheck } from 'lucide-react'
 import FaceOverlay from './components/FaceOverlay'
-import {
-  downloadSessionReport,
-  endMonitoringSession,
-  getIdentityReference,
-  postMonitoringEvent,
-  startMonitoringSession,
-  submitMonitoringCheck,
-  uploadMedia,
-} from './api/client'
+import LiveFaceMesh from './components/LiveFaceMesh'
+import useMonitoringSession from './hooks/useMonitoringSession'
+import { downloadSessionReport, getIdentityReference, getMyOrganization } from './api/client'
 
 const ArrowRight = () => (
   <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
     <path d="M3 8H13" /><path d="M9 4L13 8L9 12" />
   </svg>
 )
-
-const NORMAL_INTERVAL_MS = 20000
-const HEIGHTENED_INTERVAL_MS = 5000
-const HEIGHTENED_WINDOW_MS = 60000
-
-// Don't bother reporting a tab/window switch shorter than this -- avoids spamming an event for
-// every incidental alt-tab flicker.
-const AWAY_THRESHOLD_S = 2
-const DEVTOOLS_CHECK_MS = 2000
-const DEVTOOLS_SIZE_THRESHOLD_PX = 160
 
 const REASON_LABELS = {
   no_face: 'No face detected',
@@ -38,32 +22,9 @@ const REASON_LABELS = {
   looking_away: 'Looking away',
   talking_detected: 'Talking detected',
   object_detected: 'Unauthorized object detected',
+  device_mismatch_suspected: 'Possible device change',
+  static_image_suspected: 'Possible static photo detected',
 }
-
-const AUDIO_CLIP_MS = 3000
-
-const canvasToBlob = (canvas) => new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.92))
-
-// Records a short clip from the session's own audio track (item 7). Resolves null (not an
-// error) if there's no audio track, the track died, or MediaRecorder can't handle the mimeType
-// -- a missing audio signal should never block the camera check itself.
-const recordAudioClip = (stream, durationMs = AUDIO_CLIP_MS) => new Promise((resolve) => {
-  const audioTrack = stream?.getAudioTracks()[0]
-  if (!audioTrack || audioTrack.readyState !== 'live') { resolve(null); return }
-  let recorder
-  try {
-    recorder = new MediaRecorder(new MediaStream([audioTrack]), { mimeType: 'audio/webm' })
-  } catch {
-    resolve(null)
-    return
-  }
-  const chunks = []
-  recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data) }
-  recorder.onstop = () => resolve(chunks.length ? new Blob(chunks, { type: 'audio/webm' }) : null)
-  recorder.onerror = () => resolve(null)
-  recorder.start()
-  setTimeout(() => { if (recorder.state !== 'inactive') recorder.stop() }, durationMs)
-})
 
 const EVENT_LABELS = {
   tab_hidden: 'Tab hidden',
@@ -71,6 +32,9 @@ const EVENT_LABELS = {
   clipboard_paste: 'Clipboard paste',
   devtools_suspected: 'Devtools suspected',
   camera_interrupted: 'Camera interrupted',
+  live_no_face: 'Live: no face detected',
+  live_looking_away: 'Live: looking away',
+  live_multiple_faces: 'Live: second person detected',
 }
 
 function CheckRow({ check }) {
@@ -130,235 +94,26 @@ function EventRow({ event }) {
 
 export default function MonitoringSession() {
   const [reference, setReference] = useState(undefined) // undefined=loading, null=not enrolled, object=enrolled
-  const [session, setSession] = useState(null)
-  const [checks, setChecks] = useState([])
-  const [events, setEvents] = useState([])
-  const [error, setError] = useState(null)
-  const [starting, setStarting] = useState(false)
-  const [lastSessionId, setLastSessionId] = useState(null) // stays set after Stop, so the report stays downloadable
+  const [acknowledged, setAcknowledged] = useState(false) // instructions gate -- re-shown every visit, not persisted
+  const [orgName, setOrgName] = useState(null) // display-only, for the instructions card's org-name line
 
-  const videoRef = useRef(null)
-  const streamRef = useRef(null)
-  const checkTimeoutRef = useRef(null)
-  const sessionRef = useRef(null) // mirrors `session` for use inside async/interval closures
-  const lastFlagAtRef = useRef(0) // drives the adaptive check interval
-  const deliberateStopRef = useRef(false) // suppresses a spurious camera_interrupted on our own Stop click
-  const hiddenAtRef = useRef(null)
-  const blurredAtRef = useRef(null)
-  const devtoolsOpenRef = useRef(false)
+  const {
+    videoRef, session, checks, events, error, setError, starting, lastSessionId,
+    startSession, stopSession, handleSustainedIssue,
+    lastCheck, flaggedCount, guidanceText,
+  } = useMonitoringSession()
 
   useEffect(() => {
     let cancelled = false
     getIdentityReference()
       .then((ref) => { if (!cancelled) setReference(ref) })
       .catch(() => { if (!cancelled) setReference(null) })
+    getMyOrganization()
+      .then((org) => { if (!cancelled && org) setOrgName(org.organization_name) })
+      .catch(() => {})
     return () => { cancelled = true }
   }, [])
 
-  const stopStream = () => {
-    deliberateStopRef.current = true
-    streamRef.current?.getTracks().forEach((t) => t.stop())
-    streamRef.current = null
-  }
-
-  const stopScheduledCheck = () => {
-    if (checkTimeoutRef.current) {
-      clearTimeout(checkTimeoutRef.current)
-      checkTimeoutRef.current = null
-    }
-  }
-
-  // Releases the camera and stops any scheduled check if the user navigates away mid-session,
-  // same cleanup discipline the stream itself already had.
-  useEffect(() => () => { stopScheduledCheck(); stopStream() }, [])
-
-  const postEvent = useCallback((eventType, detail) => {
-    const activeSession = sessionRef.current
-    if (!activeSession) return
-    postMonitoringEvent(activeSession.session_id, eventType, detail != null ? String(detail) : undefined)
-      .then((event) => setEvents((prev) => [event, ...prev]))
-      .catch(() => { /* best-effort -- a missed behavioral event shouldn't surface as a user-facing error */ })
-  }, [])
-
-  // Tab/window-focus, clipboard-paste and devtools-heuristic listeners -- only wired up while a
-  // session is active, torn down on stop/unmount. These only ever see activity inside this
-  // browser tab (stated in the page copy below, not just here).
-  useEffect(() => {
-    if (!session) return undefined
-
-    const onVisibilityChange = () => {
-      if (document.hidden) {
-        hiddenAtRef.current = Date.now()
-      } else if (hiddenAtRef.current) {
-        const awaySeconds = (Date.now() - hiddenAtRef.current) / 1000
-        hiddenAtRef.current = null
-        if (awaySeconds >= AWAY_THRESHOLD_S) {
-          lastFlagAtRef.current = Date.now()
-          postEvent('tab_hidden', awaySeconds.toFixed(1))
-        }
-      }
-    }
-    const onBlur = () => { blurredAtRef.current = Date.now() }
-    const onFocus = () => {
-      if (blurredAtRef.current) {
-        const awaySeconds = (Date.now() - blurredAtRef.current) / 1000
-        blurredAtRef.current = null
-        if (awaySeconds >= AWAY_THRESHOLD_S) {
-          lastFlagAtRef.current = Date.now()
-          postEvent('window_blurred', awaySeconds.toFixed(1))
-        }
-      }
-    }
-    const onPaste = () => {
-      lastFlagAtRef.current = Date.now()
-      postEvent('clipboard_paste')
-    }
-    const devtoolsInterval = setInterval(() => {
-      const widthDiff = window.outerWidth - window.innerWidth
-      const heightDiff = window.outerHeight - window.innerHeight
-      const isOpen = widthDiff > DEVTOOLS_SIZE_THRESHOLD_PX || heightDiff > DEVTOOLS_SIZE_THRESHOLD_PX
-      if (isOpen && !devtoolsOpenRef.current) {
-        lastFlagAtRef.current = Date.now()
-        postEvent('devtools_suspected')
-      }
-      devtoolsOpenRef.current = isOpen
-    }, DEVTOOLS_CHECK_MS)
-
-    document.addEventListener('visibilitychange', onVisibilityChange)
-    window.addEventListener('blur', onBlur)
-    window.addEventListener('focus', onFocus)
-    document.addEventListener('paste', onPaste)
-
-    return () => {
-      document.removeEventListener('visibilitychange', onVisibilityChange)
-      window.removeEventListener('blur', onBlur)
-      window.removeEventListener('focus', onFocus)
-      document.removeEventListener('paste', onPaste)
-      clearInterval(devtoolsInterval)
-    }
-  }, [session, postEvent])
-
-  const runCheck = useCallback(async () => {
-    const video = videoRef.current
-    const activeSession = sessionRef.current
-    const stream = streamRef.current
-    const track = stream?.getVideoTracks()[0]
-    if (!video || !video.videoWidth || !activeSession || !track || track.readyState !== 'live') return
-
-    const canvas = document.createElement('canvas')
-    canvas.width = video.videoWidth
-    canvas.height = video.videoHeight
-    canvas.getContext('2d').drawImage(video, 0, 0)
-
-    // Captured in parallel -- the ~3s audio clip shouldn't add its own latency on top of the
-    // (near-instant) frame grab.
-    const [videoBlob, audioBlob] = await Promise.all([canvasToBlob(canvas), recordAudioClip(stream)])
-    if (!videoBlob) return
-
-    try {
-      const file = new File([videoBlob], 'monitor-frame.jpg', { type: 'image/jpeg' })
-      const uploadRes = await uploadMedia(file)
-
-      let audioUploadId
-      if (audioBlob) {
-        const audioFile = new File([audioBlob], 'monitor-audio.webm', { type: 'audio/webm' })
-        const audioUploadRes = await uploadMedia(audioFile)
-        audioUploadId = audioUploadRes.data.upload_id
-      }
-
-      const check = await submitMonitoringCheck(activeSession.session_id, uploadRes.data.upload_id, audioUploadId)
-      setChecks((prev) => [check, ...prev])
-      if (check.flagged) lastFlagAtRef.current = Date.now()
-    } catch (err) {
-      if (err.status === 400) {
-        // The session ended server-side (e.g. a previous /end call) -- stop quietly.
-        stopScheduledCheck()
-        stopStream()
-        return
-      }
-      setError(err.message)
-    }
-  }, [])
-
-  // Self-rescheduling instead of a fixed interval: right after a flagged check (or a flagged
-  // behavioral event -- a tab-hidden moment deserves denser camera evidence too), checks run
-  // every 5s for a minute, then relax back to the normal 20s cadence.
-  //
-  // Re-checks the track's own readyState before each scheduling decision (not just inside
-  // runCheck) -- caught by testing: without this, a camera that dies outside of our own Stop
-  // click (unplugged, OS permission revoked) left the loop silently re-submitting black frames
-  // every cycle instead of stopping, flooding the timeline with meaningless "no face"/"possible
-  // AI manipulation" flags from empty frames.
-  const scheduleNextCheck = useCallback(() => {
-    const track = streamRef.current?.getVideoTracks()[0]
-    if (!track || track.readyState !== 'live') {
-      stopScheduledCheck()
-      return
-    }
-    const heightened = Date.now() - lastFlagAtRef.current < HEIGHTENED_WINDOW_MS
-    const delay = heightened ? HEIGHTENED_INTERVAL_MS : NORMAL_INTERVAL_MS
-    checkTimeoutRef.current = setTimeout(async () => {
-      await runCheck()
-      scheduleNextCheck()
-    }, delay)
-  }, [runCheck])
-
-  const startSession = async () => {
-    setStarting(true)
-    setError(null)
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: true })
-      streamRef.current = stream
-      deliberateStopRef.current = false
-      // Per spec, track.stop() called by the page itself never fires 'ended' -- it's reserved
-      // for interruptions outside the app's control (device unplugged, OS permission revoked,
-      // a virtual-camera driver dropping the feed), so deliberateStopRef is defense-in-depth
-      // for engine differences, not something that's actually load-bearing against our own
-      // Stop button (confirmed directly: our own stopStream() never triggers this handler).
-      const [track] = stream.getVideoTracks()
-      if (track) {
-        track.onended = () => {
-          if (deliberateStopRef.current) return
-          postEvent('camera_interrupted', 'track ended')
-        }
-        track.onmute = () => {
-          if (deliberateStopRef.current) return
-          postEvent('camera_interrupted', 'muted')
-        }
-      }
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream
-        await videoRef.current.play()
-      }
-      const started = await startMonitoringSession()
-      setSession(started)
-      sessionRef.current = started
-      setLastSessionId(started.session_id)
-      setChecks([])
-      setEvents([])
-      lastFlagAtRef.current = 0
-      scheduleNextCheck()
-    } catch (err) {
-      stopStream()
-      setError(err?.message || 'Could not access the camera.')
-    } finally {
-      setStarting(false)
-    }
-  }
-
-  const stopSession = async () => {
-    stopScheduledCheck()
-    stopStream()
-    const activeSession = sessionRef.current
-    sessionRef.current = null
-    setSession(null)
-    if (activeSession) {
-      try { await endMonitoringSession(activeSession.session_id) } catch { /* best-effort */ }
-    }
-  }
-
-  const lastCheck = checks[0] // checks are prepended, so the first entry is the most recent
-  const flaggedCount = checks.filter((c) => c.flagged).length + events.length // every event is inherently a flag
   const timeline = [
     ...checks.map((c) => ({ kind: 'check', ts: c.checked_at, key: `check-${c.check_id}`, data: c })),
     ...events.map((e) => ({ kind: 'event', ts: e.occurred_at, key: `event-${e.event_id}`, data: e })),
@@ -377,11 +132,7 @@ export default function MonitoringSession() {
               Stay under <span className="italic text-brass">watch.</span>
             </h1>
             <p className="text-[16px] text-bone-dim max-w-[560px] mx-auto">
-              Checks your face, identity match, manipulation signal, gaze, and a short audio
-              clip for talking — every 20s normally, every 5s for a minute after anything looks
-              off. Also watches for tab switches, clipboard pastes, devtools, and phones/books in
-              frame. All of this only sees activity in this browser tab — requires camera and
-              microphone access.
+              Requires camera and microphone access. Review what's tracked before you begin.
             </p>
           </div>
 
@@ -395,7 +146,52 @@ export default function MonitoringSession() {
               </p>
             )}
 
-            {reference && (
+            {reference && !acknowledged && (
+              <div className="max-w-[520px] mx-auto">
+                <p className="tl-hud-label !text-[11px] mb-4">Before you begin</p>
+                <ul className="space-y-3 text-[14px] text-bone-dim leading-relaxed mb-8">
+                  <li className="flex gap-3">
+                    <ShieldAlert size={16} strokeWidth={1.5} className="text-brass shrink-0 mt-0.5" />
+                    <span>Your camera and microphone will be used for the entire session.</span>
+                  </li>
+                  <li className="flex gap-3">
+                    <ShieldAlert size={16} strokeWidth={1.5} className="text-brass shrink-0 mt-0.5" />
+                    <span>
+                      Each check compares your face against your enrolled reference, screens for
+                      signs of manipulation, and watches gaze, talking, and phones/books in frame
+                      — every 20s normally, every 5s for a minute after anything looks off.
+                    </span>
+                  </li>
+                  <li className="flex gap-3">
+                    <ShieldAlert size={16} strokeWidth={1.5} className="text-brass shrink-0 mt-0.5" />
+                    <span>
+                      Tab switches, window focus loss, clipboard pastes, and devtools use in this
+                      browser tab are also logged. Activity outside this tab is not visible to it.
+                    </span>
+                  </li>
+                  <li className="flex gap-3">
+                    <ShieldCheck size={16} strokeWidth={1.5} className="text-brass shrink-0 mt-0.5" />
+                    <span>
+                      A session report is generated for <strong className="text-brass">{orgName || 'your organisation'}</strong> to
+                      review — nothing here is proof of misconduct on its own, it's a record for a
+                      human to judge.
+                    </span>
+                  </li>
+                </ul>
+                <div className="flex justify-center">
+                  <button
+                    type="button"
+                    onClick={() => setAcknowledged(true)}
+                    className="group flex items-center gap-3 bg-brass text-ground px-8 py-4 rounded-[4px] text-[13px] font-medium tracking-[0.08em] uppercase btn-lift"
+                  >
+                    I Understand — Continue
+                    <span className="transition-transform duration-300 group-hover:translate-x-1"><ArrowRight /></span>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {reference && acknowledged && (
               <>
                 <div className="relative w-full max-w-[640px] mx-auto aspect-[4/3] bg-ground border border-line rounded-[4px] overflow-hidden mb-6">
                   {/* Mirrored together so the overlay's coordinates (in the camera's own,
@@ -404,6 +200,7 @@ export default function MonitoringSession() {
                       to the face. */}
                   <div className="relative w-full h-full scale-x-[-1]">
                     <video ref={videoRef} muted playsInline className="w-full h-full object-cover" />
+                    <LiveFaceMesh videoRef={videoRef} active={!!session} onSustainedIssue={handleSustainedIssue} />
                     {session && lastCheck?.image_width && (
                       <FaceOverlay
                         box={lastCheck.face_box}
@@ -417,6 +214,11 @@ export default function MonitoringSession() {
                   {!session && (
                     <div className="absolute inset-0 flex items-center justify-center text-bone-faint text-[13px]">
                       Camera off
+                    </div>
+                  )}
+                  {session && guidanceText && (
+                    <div className="absolute inset-x-0 bottom-0 bg-ground/85 border-t border-line px-4 py-2.5 text-center">
+                      <p className="text-[12px] text-bone leading-snug">{guidanceText}</p>
                     </div>
                   )}
                 </div>

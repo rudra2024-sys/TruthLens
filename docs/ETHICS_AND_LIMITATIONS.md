@@ -101,9 +101,19 @@ needs explicit approval and has not been started.
 * Uploaded files, results and reports are stored on the server you run and are visible only to their owner (other accounts get 404).
 * **Feedback is opt-in.** A user can say a verdict was right or wrong without allowing the file to be kept. Only when they tick the (default-off) box can the file and note be
   exported for evaluation; they can change or withdraw it at any time. Withdrawing removes the feedback and the consent.
+* **Biometric data (face embeddings) requires explicit opt-in, separate from account signup.** Enrolling a reference photo for identity-match/monitoring
+  requires ticking a consent checkbox naming what's stored (a face embedding derived from the photo) and why (identity verification, and monitoring
+  sessions if the user starts one); the backend rejects an enrollment request that doesn't include it. The reference is kept until the user deletes it
+  (`DELETE /identity/reference`, idempotent) or deletes their account (`DELETE /auth/me`, which removes every upload, result and reference row). It is
+  never used for anything other than identity-match/monitoring.
 * GPS location inside a photo is reported only as "present"; coordinates are never shown.
-* **Gaps:** there is no automatic deletion and no "delete my data" button yet, and no audit log. See [`THREAT_MODEL.md`](THREAT_MODEL.md) §6.
+* An account and all its data (uploads, results, reports, feedback, face reference) can be deleted via `DELETE /auth/me` (confirmed by typing DELETE in the
+  frontend's delete-account modal). An audit log (`AuditLogEntry`) records signup, login, failed login, feedback withdrawal, account deletion and feedback
+  export.
 * Using feedback to **train** the models is a separate decision that needs explicit approval; the export tool is for evaluation.
+* **Organisation join codes are not rate-limited server-side.** A student links to a test organisation by entering its
+  private 8-character code (`A-Z2-9`, ambiguous characters excluded); the 32^8 search space makes brute-forcing
+  impractical at this project's scale, but this is a stated accepted gap, not a claim that guessing is prevented.
 
 ## 6. Responsible use (suggested wording for users)
 

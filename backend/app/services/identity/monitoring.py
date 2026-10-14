@@ -50,6 +50,7 @@ from app.services.identity.detector import (
     get_identity_pipeline,
 )
 from app.services.identity.head_pose import estimate_yaw_pitch, mouth_width
+from app.services.identity.liveness import assess_motion_liveness
 from app.services.image.detector import (
     _verdict as _deepfake_verdict,
     get_clip_pipeline,
@@ -177,6 +178,19 @@ async def _previous_check(db: AsyncSession, session_id: str) -> MonitoringCheck 
     return r.scalar_one_or_none()
 
 
+async def _recent_checks(db: AsyncSession, session_id: str, limit: int) -> list[MonitoringCheck]:
+    """The last `limit` checks for a session, oldest first (used by the motion-liveness heuristic
+    below -- a separate helper from _previous_check above since that one's callers only ever need
+    exactly one prior check)."""
+    r = await db.execute(
+        select(MonitoringCheck)
+        .where(MonitoringCheck.session_id == session_id)
+        .order_by(MonitoringCheck.checked_at.desc())
+        .limit(limit)
+    )
+    return list(reversed(r.scalars().all()))
+
+
 def _deviates_from_baseline(yaw: float, pitch: float, baseline_yaw: float, baseline_pitch: float) -> bool:
     return (
         abs(yaw - baseline_yaw) > settings.LOOKING_AWAY_YAW_THRESHOLD_DEG
@@ -190,6 +204,7 @@ async def run_check(
     upload: Upload,
     db: AsyncSession,
     audio_upload: Upload | None = None,
+    user_agent: str | None = None,
 ) -> MonitoringCheck:
     path = upload.storage_url
     if not path or not os.path.isfile(path):
@@ -223,6 +238,29 @@ async def run_check(
         reasons.append("talking_detected")
     if signals["object_detections"]:
         reasons.append("object_detected")
+
+    # Device-mismatch signal (added 2026-10-11, item 7): set the session's User-Agent baseline on
+    # its first check, flag later checks whose header differs. A real signal (a second browser
+    # posting into the same session), not proof -- the same person switching browsers mid-session
+    # triggers it too, same honesty tier as every other heuristic here.
+    if user_agent is not None:
+        if session.initial_user_agent is None:
+            session.initial_user_agent = user_agent
+        elif user_agent != session.initial_user_agent:
+            reasons.append("device_mismatch_suspected")
+
+    # Motion-based liveness (added 2026-10-11, item 9) -- see liveness.py's module docstring for
+    # the full honesty caveat (not blink detection). Only meaningful with a real single-face box
+    # + landmarks for the current check; gathers the last N-1 prior checks that also had both
+    # (skipping any that didn't, e.g. a brief no-face gap) to build a short motion window.
+    if signals["landmarks"] is not None and signals["face_box"] is not None:
+        prior = await _recent_checks(db, session.session_id, settings.LIVENESS_MIN_CONSECUTIVE_CHECKS - 1)
+        history = [(c.landmarks, c.face_box) for c in prior if c.landmarks is not None and c.face_box is not None]
+        history.append((signals["landmarks"], signals["face_box"]))
+        if len(history) >= settings.LIVENESS_MIN_CONSECUTIVE_CHECKS and assess_motion_liveness(
+            history, settings.LIVENESS_MOTION_EPSILON_FRACTION
+        ):
+            reasons.append("static_image_suspected")
 
     # Head-pose baseline + sustained-deviation logic -- needs session/DB state, so it lives here
     # rather than in the pure _compute_signals function above.

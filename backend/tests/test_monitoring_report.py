@@ -30,6 +30,13 @@ def stub_embed(monkeypatch):
         return [1.0, 0.0]
 
     monkeypatch.setattr("app.services.identity.detector._embed", _embed_stub)
+    # So the enrollment quality gate (added 2026-10-11) doesn't reject this suite's plain
+    # solid-color PNG fixtures -- see test_identity.py's identically-shaped stub for why.
+    monkeypatch.setattr(
+        "app.services.identity.detector._detect_faces",
+        lambda path: {"count": 1, "landmarks": None, "box": [8.0, 8.0, 56.0, 56.0], "image_size": (64, 64)},
+    )
+    monkeypatch.setattr("app.services.identity.detector.assess_enrollment_quality", lambda path, detection: [])
 
     def _queue(vector):
         queue.append(list(vector))
@@ -73,7 +80,7 @@ def stub_monitoring(monkeypatch):
 def _enroll(client, headers, upload, stub_embed, vector=(1.0, 0.0)):
     stub_embed(vector)
     uid = upload(headers, png_bytes(), "ref.png", "image/png")
-    r = client.post("/api/v1/identity/reference", json={"upload_id": uid}, headers=headers)
+    r = client.post("/api/v1/identity/reference", json={"upload_id": uid, "consent": True}, headers=headers)
     assert r.status_code == 201, r.text
     return r.json()
 
@@ -163,3 +170,44 @@ def test_report_ownership_isolation(client, auth, other_auth, upload, stub_embed
 
     r = client.get(f"/api/v1/identity/sessions/{session['session_id']}/report", headers=other_auth)
     assert r.status_code == 404
+
+
+def test_report_includes_integrity_hash(client, auth, upload, stub_embed, stub_monitoring):
+    _enroll(client, auth, upload, stub_embed)
+    session = _start_session(client, auth)
+    uid = upload(auth, png_bytes(), "frame.png", "image/png")
+    client.post(f"/api/v1/identity/sessions/{session['session_id']}/checks", json={"upload_id": uid}, headers=auth)
+
+    r = client.get(f"/api/v1/identity/sessions/{session['session_id']}/report", headers=auth)
+    text = _pdf_text(r.content)
+    assert "Record Integrity Hash" in text
+    assert "not a" in text and "signature" in text  # the honest-framing sentence
+
+
+def test_integrity_hash_is_deterministic_and_sensitive_to_the_records():
+    """Direct unit test of _compute_integrity_hash -- same style as the lip-sync test above:
+    construct plain ORM instances (no DB needed to just hold attribute values)."""
+    from app.models.models import MonitoringCheck, MonitoringEvent, MonitoringSession
+    from app.services.report.session_report import _compute_integrity_hash
+
+    session = MonitoringSession(session_id="s1", user_id="u1", reference_id="r1",
+                                 started_at="2026-10-11T10:00:00", ended_at=None)
+    checks = [
+        MonitoringCheck(check_id="c1", session_id="s1", upload_id="up1", face_count=1,
+                        identity_verdict="MATCH", fake_probability=0.1, deepfake_verdict="REAL",
+                        flagged=False, flag_reasons_json="[]", checked_at="2026-10-11T10:00:05"),
+    ]
+    events = [
+        MonitoringEvent(event_id="e1", session_id="s1", event_type="tab_hidden", detail="3.0",
+                        occurred_at="2026-10-11T10:00:10"),
+    ]
+
+    hash_a = _compute_integrity_hash(session, checks, events)
+    hash_b = _compute_integrity_hash(session, checks, events)
+    assert hash_a == hash_b
+    assert len(hash_a) == 64  # hex-encoded SHA-256
+
+    checks[0].flagged = True
+    checks[0].flag_reasons_json = '["no_face"]'
+    hash_c = _compute_integrity_hash(session, checks, events)
+    assert hash_c != hash_a

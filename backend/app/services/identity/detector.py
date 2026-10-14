@@ -19,6 +19,8 @@ from app.core.config import settings
 from app.models.models import FaceReference, IdentityMatchResult, Upload
 from app.pipelines.identity.inference import IdentityPipeline, NoFaceDetectedError
 from app.services.detection_errors import UnprocessableMediaError
+from app.services.identity.enrollment_quality import assess_enrollment_quality
+from app.services.identity.id_quality import assess_government_id_quality
 
 
 # Loaded once per process on first use, like every other pipeline singleton in this codebase
@@ -50,9 +52,31 @@ def _embed(path: str) -> list[float]:
         ) from e
 
 
+def _detect_faces(path: str) -> dict:
+    """Thin wrapper (same purpose as _embed above: a module-level function tests can monkeypatch
+    without constructing the real pipeline -- see tests/test_identity.py's stub_embed fixture)."""
+    if not path or not os.path.isfile(path):
+        raise FileNotFoundError(f"Uploaded image not found at {path}")
+    return get_identity_pipeline().detect_faces(path)
+
+
 async def enroll_reference(upload: Upload, db: AsyncSession) -> FaceReference:
+    # _embed() first (not the quality gate) -- it's the authoritative "is there a face at all"
+    # check (raises NoFaceDetectedError otherwise). detect_faces() uses a stricter 0.95
+    # confidence filter for its box/count (built for the monitoring overlay/face-count use case)
+    # and can disagree with embed()'s own internal MTCNN threshold -- confirmed directly via live
+    # testing: a heavily blurred photo found no confident box via detect_faces() (count=0) while
+    # still embedding successfully, which let it slip past a quality gate that only ran its blur
+    # check inside the count==1 branch. Running embed() first means a genuinely faceless photo
+    # still gets the accurate "no face" error, while a blurry-but-embeddable one still reaches
+    # the quality gate below.
     embedding = _embed(upload.storage_url)
     embedding_json = json.dumps(embedding)
+
+    detection = _detect_faces(upload.storage_url)
+    issues = assess_enrollment_quality(upload.storage_url, detection)
+    if issues:
+        raise UnprocessableMediaError(" ".join(issues))
 
     existing = (
         await db.execute(select(FaceReference).where(FaceReference.user_id == upload.user_id))
@@ -64,6 +88,7 @@ async def enroll_reference(upload: Upload, db: AsyncSession) -> FaceReference:
         existing.upload_id = upload.upload_id
         existing.embedding_json = embedding_json
         existing.enrolled_at = now
+        existing.consent_given_at = now
         await db.flush()
         return existing
 
@@ -73,6 +98,56 @@ async def enroll_reference(upload: Upload, db: AsyncSession) -> FaceReference:
         upload_id=upload.upload_id,
         embedding_json=embedding_json,
         enrolled_at=now,
+        consent_given_at=now,
+    )
+    db.add(reference)
+    await db.flush()
+    return reference
+
+
+async def verify_government_id(upload: Upload, db: AsyncSession) -> FaceReference:
+    """Transient-use government-ID enrollment (added 2026-10-12): extracts a face embedding from
+    a government-ID-card photo and stores/updates FaceReference exactly like enroll_reference,
+    marked government_id_verified=True. Does NOT touch the uploaded file -- deleting it is the
+    caller's job (routes/identity.py::post_verify_government_id), always, success or failure, so
+    "transient" has no happy-path-only exception. Same embed-before-quality-gate ordering as
+    enroll_reference, for the same reason (see that function's comment).
+
+    Scope note, worth repeating here since it's easy to overclaim: this verifies the face on the
+    photographed document matches, nothing more. There is no document-authenticity/OCR check --
+    a forged or fake ID card with a real face on it passes exactly as well as a genuine one
+    would. That is a deliberate, named limitation, not an oversight."""
+    embedding = _embed(upload.storage_url)
+    embedding_json = json.dumps(embedding)
+
+    detection = _detect_faces(upload.storage_url)
+    issues = assess_government_id_quality(upload.storage_url, detection)
+    if issues:
+        raise UnprocessableMediaError(" ".join(issues))
+
+    existing = (
+        await db.execute(select(FaceReference).where(FaceReference.user_id == upload.user_id))
+    ).scalar_one_or_none()
+
+    now = datetime.utcnow().isoformat()
+
+    if existing is not None:
+        existing.upload_id = upload.upload_id
+        existing.embedding_json = embedding_json
+        existing.enrolled_at = now
+        existing.consent_given_at = now
+        existing.government_id_verified = True
+        await db.flush()
+        return existing
+
+    reference = FaceReference(
+        reference_id=str(uuid.uuid4()),
+        user_id=upload.user_id,
+        upload_id=upload.upload_id,
+        embedding_json=embedding_json,
+        enrolled_at=now,
+        consent_given_at=now,
+        government_id_verified=True,
     )
     db.add(reference)
     await db.flush()

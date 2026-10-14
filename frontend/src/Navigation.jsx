@@ -44,11 +44,22 @@ const Navigation = () => {
     </>
   ) : null
 
+  // Organisation accounts (role "organization", or the legacy "admin" value from before
+  // account_type existed -- see backend/app/api/routes/auth.py::get_current_organization) review
+  // students, they don't enroll their own identity or take sessions -- the nav differs
+  // accordingly rather than showing every account the same generic links.
+  const isOrg = user?.role === 'organization' || user?.role === 'admin'
+
   const items = [
     { label: 'Home', link: '/', ariaLabel: 'Go to home' },
-    ...(user ? [{ label: 'Dashboard', link: '/dashboard', ariaLabel: 'Go to dashboard' }] : []),
+    ...(user
+      ? [{
+          label: 'Dashboard', link: isOrg ? '/admin' : '/dashboard',
+          ariaLabel: isOrg ? 'Go to organisation dashboard' : 'Go to dashboard',
+        }]
+      : []),
     { label: 'Verify', link: '/verify', ariaLabel: 'Go to verify' },
-    ...(user ? [{ label: 'Identity', link: '/identity', ariaLabel: 'Go to identity verification' }] : []),
+    ...(user && !isOrg ? [{ label: 'Identity', link: '/identity', ariaLabel: 'Go to identity verification' }] : []),
     { label: 'History', link: '/history', ariaLabel: 'Go to history' },
     { label: 'Reports', link: '/reports', ariaLabel: 'Go to reports' },
     { label: 'About', link: '/about', ariaLabel: 'Go to about' },

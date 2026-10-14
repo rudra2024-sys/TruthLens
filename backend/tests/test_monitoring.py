@@ -42,6 +42,11 @@ def stub_embed(monkeypatch):
         return [1.0, 0.0]
 
     monkeypatch.setattr("app.services.identity.detector._embed", _embed_stub)
+    monkeypatch.setattr(
+        "app.services.identity.detector._detect_faces",
+        lambda path: {"count": 1, "landmarks": None, "box": [8.0, 8.0, 56.0, 56.0], "image_size": (64, 64)},
+    )
+    monkeypatch.setattr("app.services.identity.detector.assess_enrollment_quality", lambda path, detection: [])
 
     def _queue(vector):
         queue.append(list(vector))
@@ -121,7 +126,7 @@ def stub_monitoring(monkeypatch):
 def _enroll(client, headers, upload, stub_embed, vector=(1.0, 0.0)):
     stub_embed(vector)
     uid = upload(headers, png_bytes(), "ref.png", "image/png")
-    r = client.post("/api/v1/identity/reference", json={"upload_id": uid}, headers=headers)
+    r = client.post("/api/v1/identity/reference", json={"upload_id": uid, "consent": True}, headers=headers)
     assert r.status_code == 201, r.text
     return r.json()
 
@@ -140,6 +145,25 @@ def _submit_check(client, headers, upload, session_id):
 def test_session_requires_enrollment(client, auth):
     r = client.post("/api/v1/identity/sessions", headers=auth)
     assert r.status_code == 404
+
+
+def test_list_my_sessions_returns_only_own_sessions_newest_first(client, auth, other_auth, upload, stub_embed):
+    """GET /identity/sessions (added 2026-10-12) -- the student-side session history list."""
+    _enroll(client, auth, upload, stub_embed)
+    session_a = _start_session(client, auth)
+    client.post(f"/api/v1/identity/sessions/{session_a['session_id']}/end", headers=auth)
+    session_b = _start_session(client, auth)
+
+    _enroll(client, other_auth, upload, stub_embed)
+    _start_session(client, other_auth)
+
+    r = client.get("/api/v1/identity/sessions", headers=auth)
+    assert r.status_code == 200, r.text
+    ids = [row["session_id"] for row in r.json()]
+    assert session_b["session_id"] in ids
+    assert session_a["session_id"] in ids
+    assert ids.index(session_b["session_id"]) < ids.index(session_a["session_id"])  # newest first
+    assert all("user_id" not in row for row in r.json())  # self-scoped, no owner field needed
 
 
 def test_unflagged_check_when_everything_normal(client, auth, upload, stub_embed, stub_monitoring):
@@ -415,3 +439,85 @@ def test_object_detection_runs_even_with_no_face_in_frame(client, auth, upload, 
     assert "no_face" in body["flag_reasons"]
     assert "object_detected" in body["flag_reasons"]
     assert body["object_detections"] == ["book"]
+
+
+# ---- item 7: session/device abuse prevention (added 2026-10-11) -------------------------------
+
+def test_starting_a_session_twice_returns_the_same_one(client, auth, upload, stub_embed):
+    _enroll(client, auth, upload, stub_embed)
+    first = client.post("/api/v1/identity/sessions", headers=auth)
+    assert first.status_code == 201, first.text
+
+    second = client.post("/api/v1/identity/sessions", headers=auth)
+    assert second.status_code == 200, second.text
+    assert second.json()["session_id"] == first.json()["session_id"]
+
+
+def test_new_session_after_ending_the_previous_one_gets_a_fresh_id(client, auth, upload, stub_embed):
+    _enroll(client, auth, upload, stub_embed)
+    first = client.post("/api/v1/identity/sessions", headers=auth).json()
+    end = client.post(f"/api/v1/identity/sessions/{first['session_id']}/end", headers=auth)
+    assert end.status_code == 200, end.text
+
+    second = client.post("/api/v1/identity/sessions", headers=auth)
+    assert second.status_code == 201, second.text
+    assert second.json()["session_id"] != first["session_id"]
+
+
+def test_device_mismatch_flagged_when_user_agent_changes(client, auth, upload, stub_embed, stub_monitoring):
+    _enroll(client, auth, upload, stub_embed)
+    session = _start_session(client, auth)
+    headers_a = {**auth, "User-Agent": "BrowserA/1.0"}
+    headers_b = {**auth, "User-Agent": "BrowserB/2.0"}
+
+    uid1 = upload(headers_a, png_bytes(), "frame1.png", "image/png")
+    first = client.post(
+        f"/api/v1/identity/sessions/{session['session_id']}/checks", json={"upload_id": uid1}, headers=headers_a
+    )
+    assert first.status_code == 201, first.text
+    assert "device_mismatch_suspected" not in first.json()["flag_reasons"]
+
+    uid2 = upload(headers_a, png_bytes(), "frame2.png", "image/png")
+    same_device = client.post(
+        f"/api/v1/identity/sessions/{session['session_id']}/checks", json={"upload_id": uid2}, headers=headers_a
+    )
+    assert "device_mismatch_suspected" not in same_device.json()["flag_reasons"]
+
+    uid3 = upload(headers_a, png_bytes(), "frame3.png", "image/png")
+    different_device = client.post(
+        f"/api/v1/identity/sessions/{session['session_id']}/checks", json={"upload_id": uid3}, headers=headers_b
+    )
+    assert different_device.status_code == 201, different_device.text
+    assert "device_mismatch_suspected" in different_device.json()["flag_reasons"]
+
+
+# ---- item 9: motion-based liveness heuristic (added 2026-10-11) -------------------------------
+
+def test_static_image_suspected_after_identical_landmarks(client, auth, upload, stub_embed, stub_monitoring):
+    """Default stub_monitoring landmarks are a fixed array -- three consecutive checks with no
+    variation at all is exactly the "held-up static photo" case this heuristic targets."""
+    _enroll(client, auth, upload, stub_embed)
+    session = _start_session(client, auth)
+
+    first = _submit_check(client, auth, upload, session["session_id"])
+    assert "static_image_suspected" not in first.json()["flag_reasons"]  # not enough history yet
+
+    second = _submit_check(client, auth, upload, session["session_id"])
+    assert "static_image_suspected" not in second.json()["flag_reasons"]
+
+    third = _submit_check(client, auth, upload, session["session_id"])
+    assert "static_image_suspected" in third.json()["flag_reasons"]
+
+
+def test_static_image_not_suspected_when_landmarks_vary(client, auth, upload, stub_embed, stub_monitoring):
+    _enroll(client, auth, upload, stub_embed)
+    session = _start_session(client, auth)
+
+    base = _FRONTAL_LANDMARKS
+    for i in range(3):
+        # A few px of natural jitter each check -- well above the epsilon-normalized threshold
+        # on this stub's ~227px box diagonal.
+        stub_monitoring(landmarks=base + np.array([[3.0 * (i + 1), -2.0 * (i + 1)]] * 5))
+        r = _submit_check(client, auth, upload, session["session_id"])
+
+    assert "static_image_suspected" not in r.json()["flag_reasons"]

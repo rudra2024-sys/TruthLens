@@ -63,10 +63,34 @@ def _signup(client, name):
     return {"Authorization": "Bearer " + r.json()["access_token"]}, email
 
 
+def _join_org(client, headers, join_code):
+    r = client.post("/api/v1/identity/organization", json={"join_code": join_code}, headers=headers)
+    assert r.status_code == 200, r.text
+
+
+@pytest.fixture(scope="session")
+def _default_org_join_code(client):
+    """One shared organisation, created once for the whole test session (added 2026-10-12, when
+    enrollment started requiring an organisation link) -- every `auth`/`other_auth` student joins
+    it automatically below, so every existing enroll/session test across the suite keeps passing
+    unmodified. Tests that specifically exercise join-code/scoping behaviour (test_admin.py,
+    test_organizations.py) create and join their own separate organisation instead of relying on
+    this one."""
+    email = f"default-org-{uuid.uuid4().hex[:8]}@example.com"
+    r = client.post("/api/v1/auth/signup", json={
+        "name": "Default Test Org", "email": email, "password": PASSWORD, "account_type": "organization",
+    })
+    assert r.status_code == 201, r.text
+    headers = {"Authorization": "Bearer " + r.json()["access_token"]}
+    return client.get("/api/v1/admin/join-code", headers=headers).json()["join_code"]
+
+
 @pytest.fixture()
-def user(client):
-    """A fresh user: (auth headers, email)."""
-    return _signup(client, "tester")
+def user(client, _default_org_join_code):
+    """A fresh user: (auth headers, email), already joined to the shared default test org."""
+    headers, email = _signup(client, "tester")
+    _join_org(client, headers, _default_org_join_code)
+    return headers, email
 
 
 @pytest.fixture()
@@ -75,8 +99,10 @@ def auth(user):
 
 
 @pytest.fixture()
-def other_auth(client):
-    return _signup(client, "other")[0]
+def other_auth(client, _default_org_join_code):
+    headers, _email = _signup(client, "other")
+    _join_org(client, headers, _default_org_join_code)
+    return headers
 
 
 def png_bytes(color=(120, 90, 60), size=(64, 64)) -> bytes:

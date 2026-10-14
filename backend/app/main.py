@@ -11,7 +11,7 @@ from app.core.readiness import check_readiness
 from app.core.request_context import RequestIdMiddleware, get_request_id
 from app.core.security import SECRET_KEY
 from app.core.startup import enforce_startup_checks, parse_origins
-from app.api.routes import upload, detect, dashboard, report, auth, jobs, feedback, identity
+from app.api.routes import upload, detect, dashboard, report, auth, jobs, feedback, identity, admin, exams
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +56,8 @@ app.include_router(auth.router, prefix="/api/v1")
 app.include_router(jobs.router, prefix="/api/v1")
 app.include_router(feedback.router, prefix="/api/v1")
 app.include_router(identity.router, prefix="/api/v1")
+app.include_router(admin.router, prefix="/api/v1")
+app.include_router(exams.router, prefix="/api/v1")
 
 @app.get("/")
 async def root():

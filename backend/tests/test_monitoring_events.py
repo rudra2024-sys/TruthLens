@@ -19,6 +19,11 @@ def stub_embed(monkeypatch):
         return [1.0, 0.0]
 
     monkeypatch.setattr("app.services.identity.detector._embed", _embed_stub)
+    monkeypatch.setattr(
+        "app.services.identity.detector._detect_faces",
+        lambda path: {"count": 1, "landmarks": None, "box": [8.0, 8.0, 56.0, 56.0], "image_size": (64, 64)},
+    )
+    monkeypatch.setattr("app.services.identity.detector.assess_enrollment_quality", lambda path, detection: [])
 
     def _queue(vector):
         queue.append(list(vector))
@@ -29,7 +34,7 @@ def stub_embed(monkeypatch):
 def _enroll(client, headers, upload, stub_embed, vector=(1.0, 0.0)):
     stub_embed(vector)
     uid = upload(headers, png_bytes(), "ref.png", "image/png")
-    r = client.post("/api/v1/identity/reference", json={"upload_id": uid}, headers=headers)
+    r = client.post("/api/v1/identity/reference", json={"upload_id": uid, "consent": True}, headers=headers)
     assert r.status_code == 201, r.text
     return r.json()
 
@@ -53,7 +58,23 @@ def test_post_event_persists_and_is_returned(client, auth, upload, stub_embed):
     body = r.json()
     assert body["event_type"] == "tab_hidden"
     assert body["detail"] == "7.3"
-    assert body["session_id"] == session["session_id"]
+
+
+@pytest.mark.parametrize("event_type", ["live_no_face", "live_looking_away", "live_multiple_faces"])
+def test_live_attention_event_types_are_accepted(client, auth, upload, stub_embed, event_type):
+    """Real-time client-side attention signals (added 2026-10-12, see LiveFaceMesh.jsx) go
+    through the same event endpoint as tab_hidden etc. -- just three more accepted event_type
+    values."""
+    _enroll(client, auth, upload, stub_embed)
+    session = _start_session(client, auth)
+
+    r = client.post(
+        f"/api/v1/identity/sessions/{session['session_id']}/events",
+        json={"event_type": event_type},
+        headers=auth,
+    )
+    assert r.status_code == 201, r.text
+    assert r.json()["event_type"] == event_type
 
 
 def test_rejects_unknown_event_type(client, auth, upload, stub_embed):

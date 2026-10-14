@@ -219,10 +219,46 @@ class UploadIdIn(BaseModel):
     upload_id: str
 
 
+class EnrollReferenceIn(BaseModel):
+    upload_id: str
+    # Required, explicit opt-in (added 2026-10-11) -- mirrors the per-item consent discipline
+    # the feedback-export feature already uses (see CLAUDE.md section 15). The route rejects a
+    # request where this isn't exactly true; there's no way to enroll without it.
+    consent: bool
+
+
+class EnrollOrganizationIn(BaseModel):
+    join_code: str
+
+
+class OrganizationOut(BaseModel):
+    organization_id: str
+    organization_name: str
+
+
+class JoinCodeOut(BaseModel):
+    join_code: str
+
+
+class RosterStudentOut(BaseModel):
+    user_id: str
+    name: str
+    email: str
+
+
+class MySessionListItemOut(BaseModel):
+    session_id: str
+    started_at: str
+    ended_at: Optional[str] = None
+    total_checks: int
+    flagged_checks: int
+
+
 class IdentityReferenceOut(BaseModel):
     reference_id: str
     upload_id: str
     enrolled_at: str
+    consent_given_at: Optional[str] = None
     # Deliberately no embedding_json field here -- never serialize the raw embedding
     # back out over the API.
 
@@ -268,6 +304,18 @@ class MonitoringCheckOut(BaseModel):
         from_attributes = True
 
 
+class CheckJobOut(BaseModel):
+    """A background monitoring-check job (added 2026-10-11, item 6; see app/services/
+    monitoring_jobs.py). The finished check is embedded directly in `result` once state == "done"
+    -- small enough to hold inline, unlike a video job's heavier DetectionResult, so there's no
+    separate fetch endpoint."""
+    job_id: str
+    session_id: str
+    state: str                        # queued | running | done | failed
+    result: Optional[MonitoringCheckOut] = None
+    error: Optional[str] = None
+
+
 class MonitoringCheckIn(BaseModel):
     upload_id: str
     # Optional ~3s audio clip, already uploaded via the generic /upload endpoint, for the
@@ -277,7 +325,15 @@ class MonitoringCheckIn(BaseModel):
 
 
 class MonitoringEventIn(BaseModel):
-    event_type: Literal["tab_hidden", "window_blurred", "clipboard_paste", "devtools_suspected", "camera_interrupted"]
+    event_type: Literal[
+        "tab_hidden", "window_blurred", "clipboard_paste", "devtools_suspected", "camera_interrupted",
+        # Real-time, client-side signals (added 2026-10-12) -- fired by LiveFaceMesh.jsx the moment
+        # a condition (no face / looking away / a second face) has held continuously for ~2s,
+        # instead of waiting on the backend's own 5-20s periodic check cadence. Always paired with
+        # a forced immediate real check (see MonitoringSession.jsx), so a "live_*" event is never
+        # the only evidence on its own -- a real captured frame backs it up.
+        "live_no_face", "live_looking_away", "live_multiple_faces",
+    ]
     detail: Optional[str] = Field(default=None, max_length=200)
 
 
@@ -308,3 +364,124 @@ class MonitoringSessionDetailOut(MonitoringSessionOut):
 
     class Config:
         from_attributes = True
+
+
+class AdminSessionListItemOut(BaseModel):
+    """One row of GET /admin/sessions (added 2026-10-11) -- a session plus just enough about its
+    owner to identify them in a list, not the full MonitoringSessionDetailOut (too heavy for a
+    list of many users' sessions)."""
+    session_id: str
+    user_id: str
+    user_name: str
+    user_email: str
+    started_at: str
+    ended_at: Optional[str] = None
+    total_checks: int
+    flagged_checks: int
+
+
+class AdminSessionDetailOut(MonitoringSessionDetailOut):
+    user_id: str
+    user_name: str
+    user_email: str
+
+
+class EnrollGovernmentIdIn(BaseModel):
+    upload_id: str
+    consent: bool
+
+
+class ExamIn(BaseModel):
+    title: str
+    pass_threshold: int
+    max_flags: int = 4
+
+
+class ExamOut(BaseModel):
+    exam_id: str
+    organization_id: str
+    title: str
+    pass_threshold: int
+    max_flags: int
+    is_active: bool
+    created_at: str
+    question_count: int = 0
+
+    class Config:
+        from_attributes = True
+
+
+class ExamQuestionIn(BaseModel):
+    text: str
+    options: List[str] = Field(min_length=2)
+    correct_option_index: int
+    order_index: Optional[int] = None
+
+
+class ExamQuestionAdminOut(BaseModel):
+    """Organisation-facing view -- includes the answer key."""
+    question_id: str
+    exam_id: str
+    order_index: int
+    text: str
+    options: List[str]
+    correct_option_index: int
+
+
+class ExamQuestionPublicOut(BaseModel):
+    """Student-facing view while taking an exam -- correct_option_index is deliberately absent,
+    never serialize the answer key here."""
+    question_id: str
+    order_index: int
+    text: str
+    options: List[str]
+
+
+class ExamAttemptStartIn(BaseModel):
+    details: dict[str, str] = {}
+
+
+class ExamAttemptOut(BaseModel):
+    """The exam-taking page's polling schema -- includes the live flagged_checks count so the
+    frontend can show a running total, and status, which is what it actually watches to decide
+    when to lock the UI."""
+    attempt_id: str
+    exam_id: str
+    session_id: str
+    status: str
+    score: Optional[int] = None
+    started_at: str
+    ended_at: Optional[str] = None
+    flagged_checks: int
+    max_flags: int
+
+
+class ExamAnswerIn(BaseModel):
+    question_id: str
+    selected_option_index: int
+
+
+class ExamAnswerOut(BaseModel):
+    answer_id: str
+    question_id: str
+    selected_option_index: int
+    answered_at: str
+
+    class Config:
+        from_attributes = True
+
+
+class ExamAttemptListItemOut(BaseModel):
+    """One row of GET /admin/exams/{exam_id}/attempts -- an attempt plus enough about its exam
+    and owner to review it in a list, mirroring AdminSessionListItemOut's shape."""
+    attempt_id: str
+    exam_id: str
+    exam_title: str
+    user_id: str
+    user_name: str
+    user_email: str
+    session_id: str
+    status: str
+    score: Optional[int] = None
+    started_at: str
+    ended_at: Optional[str] = None
