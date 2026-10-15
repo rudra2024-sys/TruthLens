@@ -262,6 +262,7 @@ class IdentityReferenceOut(BaseModel):
     upload_id: str
     enrolled_at: str
     consent_given_at: Optional[str] = None
+    government_id_verified: bool = False
     # Deliberately no embedding_json field here -- never serialize the raw embedding
     # back out over the API.
 
@@ -409,6 +410,11 @@ class ExamOut(BaseModel):
     is_active: bool
     created_at: str
     question_count: int = 0
+    # Populated only by the student-facing GET /exams/mine listing (see exams.py) -- left None
+    # everywhere else (org create/list/update, the single-exam get_exam) since those callers
+    # don't have a specific student's attempts in scope.
+    my_attempt_id: Optional[str] = None
+    my_attempt_status: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -442,6 +448,22 @@ class ExamQuestionPublicOut(BaseModel):
 
 class ExamAttemptStartIn(BaseModel):
     details: dict[str, str] = {}
+
+
+class ExamIdentityVerifyIn(BaseModel):
+    """A fresh government-ID photo plus a live selfie, submitted together right before an exam
+    attempt starts -- the per-attempt confidence check (see services/identity/detector.py::
+    verify_identity_with_selfie), not a one-time enrollment."""
+    id_upload_id: str
+    live_upload_id: str
+    consent: bool = False
+
+
+class ExamIdentityVerifyOut(BaseModel):
+    similarity: float
+    verdict: str  # MATCH | UNCERTAIN | NO_MATCH, same banding as IdentityMatchOut
+    passed: bool
+    threshold: float
 
 
 class ExamAttemptOut(BaseModel):

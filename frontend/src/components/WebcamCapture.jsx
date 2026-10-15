@@ -88,21 +88,21 @@ export default function WebcamCapture({ onCapture, onCancel, className = '', fac
     <div className={className}>
       {error ? (
         <div className="flex flex-col items-center gap-4 text-center py-10">
-          <p className="text-[14px] text-verdictDanger max-w-[320px]">{error}</p>
+          <p className="text-[16px] text-verdictDanger max-w-[360px]">{error}</p>
           <button
             type="button"
             onClick={handleCancel}
-            className="text-[12px] font-medium tracking-[0.06em] text-bone-dim hover:text-bone link-underline"
+            className="text-[14px] font-medium tracking-[0.06em] text-bone-dim hover:text-bone link-underline"
           >
             Close
           </button>
         </div>
       ) : (
         <div className="flex flex-col items-center gap-5">
-          <div className="relative w-full max-w-[360px] aspect-[4/3] bg-ground border border-line rounded-[4px] overflow-hidden">
+          <div className="relative w-full max-w-[480px] aspect-[4/3] bg-ground border border-line rounded-[4px] overflow-hidden">
             <video ref={videoRef} muted playsInline className={`w-full h-full object-cover ${mirror ? 'scale-x-[-1]' : ''}`} />
             {!ready && (
-              <div className="absolute inset-0 flex items-center justify-center text-bone-faint text-[12px]">
+              <div className="absolute inset-0 flex items-center justify-center text-bone-faint text-[14px]">
                 Requesting camera…
               </div>
             )}
@@ -112,16 +112,16 @@ export default function WebcamCapture({ onCapture, onCancel, className = '', fac
               type="button"
               disabled={!ready}
               onClick={capture}
-              className="flex items-center gap-2 bg-brass text-ground px-5 py-2.5 rounded-[3px] text-[12px] font-medium tracking-[0.08em] uppercase btn-lift disabled:opacity-40"
+              className="flex items-center gap-2 bg-brass text-ground px-6 py-3 rounded-[3px] text-[14px] font-medium tracking-[0.08em] uppercase btn-lift disabled:opacity-40"
             >
-              <Camera size={14} strokeWidth={1.75} /> Capture
+              <Camera size={16} strokeWidth={1.75} /> Capture
             </button>
             <button
               type="button"
               onClick={handleCancel}
-              className="flex items-center gap-2 text-[12px] font-medium tracking-[0.06em] text-bone-dim hover:text-bone transition-colors duration-300 px-3 py-2.5"
+              className="flex items-center gap-2 text-[14px] font-medium tracking-[0.06em] text-bone-dim hover:text-bone transition-colors duration-300 px-3 py-3"
             >
-              <X size={14} strokeWidth={1.75} /> Cancel
+              <X size={16} strokeWidth={1.75} /> Cancel
             </button>
           </div>
         </div>

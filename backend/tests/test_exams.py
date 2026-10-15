@@ -161,6 +161,124 @@ def test_student_question_view_never_includes_correct_option_index(client, uploa
     assert "correct_option_index" not in q.json()[0]
 
 
+# ---- per-attempt identity confidence check (POST /{exam_id}/attempts/verify-identity) ---------
+
+def test_verify_identity_match_lets_attempt_start(client, upload, stub_embed):
+    org_headers, _email = _signup_org(client)
+    exam = _create_exam(client, org_headers)
+    join_code = _join_code_for(client, org_headers)
+    headers, _email2 = _signup(client, "freshverifystudent")
+    _join(client, headers, join_code)
+
+    stub_embed((1.0, 0.0))  # id photo embedding
+    stub_embed((1.0, 0.0))  # live selfie embedding -- identical, similarity 1.0
+    id_uid = upload(headers, png_bytes(), "id.png", "image/png")
+    live_uid = upload(headers, png_bytes(), "live.png", "image/png")
+
+    r = client.post(
+        f"/api/v1/exams/{exam['exam_id']}/attempts/verify-identity",
+        json={"id_upload_id": id_uid, "live_upload_id": live_uid, "consent": True},
+        headers=headers,
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["passed"] is True
+    assert body["verdict"] == "MATCH"
+
+    start = client.post(f"/api/v1/exams/{exam['exam_id']}/attempts", json={}, headers=headers)
+    assert start.status_code == 201, start.text
+
+
+def test_verify_identity_mismatch_blocks_attempt_start(client, upload, stub_embed):
+    org_headers, _email = _signup_org(client)
+    exam = _create_exam(client, org_headers)
+    join_code = _join_code_for(client, org_headers)
+    headers, _email2 = _signup(client, "mismatchstudent")
+    _join(client, headers, join_code)
+
+    stub_embed((1.0, 0.0))
+    stub_embed((0.0, 1.0))  # orthogonal -- similarity 0.0, well below threshold
+    id_uid = upload(headers, png_bytes(), "id.png", "image/png")
+    live_uid = upload(headers, png_bytes(), "live.png", "image/png")
+
+    r = client.post(
+        f"/api/v1/exams/{exam['exam_id']}/attempts/verify-identity",
+        json={"id_upload_id": id_uid, "live_upload_id": live_uid, "consent": True},
+        headers=headers,
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["passed"] is False
+    assert r.json()["verdict"] == "NO_MATCH"
+
+    start = client.post(f"/api/v1/exams/{exam['exam_id']}/attempts", json={}, headers=headers)
+    assert start.status_code == 400
+
+
+def test_verify_identity_requires_consent(client, upload, stub_embed):
+    org_headers, _email = _signup_org(client)
+    exam = _create_exam(client, org_headers)
+    join_code = _join_code_for(client, org_headers)
+    headers, _email2 = _signup(client, "noconsentverify")
+    _join(client, headers, join_code)
+
+    stub_embed((1.0, 0.0))
+    id_uid = upload(headers, png_bytes(), "id.png", "image/png")
+    live_uid = upload(headers, png_bytes(), "live.png", "image/png")
+
+    r = client.post(
+        f"/api/v1/exams/{exam['exam_id']}/attempts/verify-identity",
+        json={"id_upload_id": id_uid, "live_upload_id": live_uid, "consent": False},
+        headers=headers,
+    )
+    assert r.status_code == 400
+
+
+def test_verify_identity_requires_joined_organization(client, upload, stub_embed):
+    org_headers, _email = _signup_org(client)
+    exam = _create_exam(client, org_headers)
+    headers, _email2 = _signup(client, "unjoinedverify")
+    # Deliberately not joined to this exam's org.
+
+    stub_embed((1.0, 0.0))
+    id_uid = upload(headers, png_bytes(), "id.png", "image/png")
+    live_uid = upload(headers, png_bytes(), "live.png", "image/png")
+
+    r = client.post(
+        f"/api/v1/exams/{exam['exam_id']}/attempts/verify-identity",
+        json={"id_upload_id": id_uid, "live_upload_id": live_uid, "consent": True},
+        headers=headers,
+    )
+    assert r.status_code == 400
+
+
+def test_verify_identity_consumes_both_uploads(client, upload, stub_embed):
+    org_headers, _email = _signup_org(client)
+    exam = _create_exam(client, org_headers)
+    join_code = _join_code_for(client, org_headers)
+    headers, _email2 = _signup(client, "consumeuploads")
+    _join(client, headers, join_code)
+
+    stub_embed((1.0, 0.0))
+    stub_embed((1.0, 0.0))
+    id_uid = upload(headers, png_bytes(), "id.png", "image/png")
+    live_uid = upload(headers, png_bytes(), "live.png", "image/png")
+
+    first = client.post(
+        f"/api/v1/exams/{exam['exam_id']}/attempts/verify-identity",
+        json={"id_upload_id": id_uid, "live_upload_id": live_uid, "consent": True},
+        headers=headers,
+    )
+    assert first.status_code == 200, first.text
+
+    # Re-using either upload id a second time must fail -- both were deleted after use.
+    second = client.post(
+        f"/api/v1/exams/{exam['exam_id']}/attempts/verify-identity",
+        json={"id_upload_id": id_uid, "live_upload_id": live_uid, "consent": True},
+        headers=headers,
+    )
+    assert second.status_code == 404
+
+
 # ---- starting an attempt -------------------------------------------------------------------
 
 def test_start_attempt_without_joining_exams_organization_is_rejected(client, upload, stub_embed):
@@ -409,3 +527,68 @@ def test_admin_attempt_list_includes_session_id_for_report_download(client, uplo
     report = client.get(f"/api/v1/admin/sessions/{row['session_id']}/report", headers=org_headers)
     assert report.status_code == 200
     assert report.headers["content-type"] == "application/pdf"
+
+
+# ---- student-facing exam discovery (GET /exams/mine) ------------------------------------------
+
+def test_list_my_exams_is_empty_before_joining_an_organization(client, upload, stub_embed):
+    org_headers, _email = _signup_org(client)
+    _create_exam(client, org_headers)
+    headers, _email2 = _signup(client, "unjoinedbrowser")
+    _verify_id(client, headers, upload, stub_embed)
+    # Deliberately not joined to any organisation.
+
+    r = client.get("/api/v1/exams/mine", headers=headers)
+    assert r.status_code == 200, r.text
+    assert r.json() == []
+
+
+def test_list_my_exams_only_shows_joined_orgs_exams_with_no_attempt_yet(client, upload, stub_embed):
+    org_a, _ = _signup_org(client, "orga2")
+    org_b, _ = _signup_org(client, "orgb2")
+    exam_a = _create_exam(client, org_a, title="Org A Quiz")
+    _create_exam(client, org_b, title="Org B Quiz")
+    join_code_a = _join_code_for(client, org_a)
+    student, _ = _ready_student(client, upload, stub_embed, join_code_a)
+
+    r = client.get("/api/v1/exams/mine", headers=student)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert len(body) == 1
+    assert body[0]["exam_id"] == exam_a["exam_id"]
+    assert body[0]["my_attempt_id"] is None
+    assert body[0]["my_attempt_status"] is None
+
+
+def test_list_my_exams_reflects_in_progress_then_completed_status(client, upload, stub_embed):
+    org_headers, _email = _signup_org(client)
+    exam = _create_exam(client, org_headers, pass_threshold=0)
+    join_code = _join_code_for(client, org_headers)
+    student, _ = _ready_student(client, upload, stub_embed, join_code)
+
+    attempt = client.post(f"/api/v1/exams/{exam['exam_id']}/attempts", json={}, headers=student).json()
+
+    mid = client.get("/api/v1/exams/mine", headers=student).json()
+    assert mid[0]["my_attempt_id"] == attempt["attempt_id"]
+    assert mid[0]["my_attempt_status"] == "in_progress"
+
+    client.post(f"/api/v1/exams/attempts/{attempt['attempt_id']}/finish", headers=student)
+
+    after = client.get("/api/v1/exams/mine", headers=student).json()
+    assert after[0]["my_attempt_status"] in ("passed", "failed")
+
+
+def test_list_my_exams_does_not_leak_another_students_attempt_status(client, upload, stub_embed):
+    org_headers, _email = _signup_org(client)
+    exam = _create_exam(client, org_headers, pass_threshold=0)
+    join_code = _join_code_for(client, org_headers)
+    student_a, _ = _ready_student(client, upload, stub_embed, join_code, name="peeka")
+    student_b, _ = _ready_student(client, upload, stub_embed, join_code, name="peekb")
+
+    client.post(f"/api/v1/exams/{exam['exam_id']}/attempts", json={}, headers=student_a)
+
+    # student_a has an in-progress attempt, but student_b -- who never started one -- must not
+    # see it reflected as their own status.
+    b_view = client.get("/api/v1/exams/mine", headers=student_b).json()
+    assert b_view[0]["my_attempt_id"] is None
+    assert b_view[0]["my_attempt_status"] is None

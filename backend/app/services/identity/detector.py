@@ -105,6 +105,40 @@ async def enroll_reference(upload: Upload, db: AsyncSession) -> FaceReference:
     return reference
 
 
+async def _upsert_government_id_reference(
+    user_id: str, upload_id: str, embedding_json: str, db: AsyncSession,
+) -> FaceReference:
+    """Shared by verify_government_id and verify_identity_with_selfie -- both end up storing the
+    ID-card photo's embedding as the user's FaceReference, marked government_id_verified=True."""
+    existing = (
+        await db.execute(select(FaceReference).where(FaceReference.user_id == user_id))
+    ).scalar_one_or_none()
+
+    now = datetime.utcnow().isoformat()
+
+    if existing is not None:
+        existing.upload_id = upload_id
+        existing.embedding_json = embedding_json
+        existing.enrolled_at = now
+        existing.consent_given_at = now
+        existing.government_id_verified = True
+        await db.flush()
+        return existing
+
+    reference = FaceReference(
+        reference_id=str(uuid.uuid4()),
+        user_id=user_id,
+        upload_id=upload_id,
+        embedding_json=embedding_json,
+        enrolled_at=now,
+        consent_given_at=now,
+        government_id_verified=True,
+    )
+    db.add(reference)
+    await db.flush()
+    return reference
+
+
 async def verify_government_id(upload: Upload, db: AsyncSession) -> FaceReference:
     """Transient-use government-ID enrollment (added 2026-10-12): extracts a face embedding from
     a government-ID-card photo and stores/updates FaceReference exactly like enroll_reference,
@@ -125,33 +159,41 @@ async def verify_government_id(upload: Upload, db: AsyncSession) -> FaceReferenc
     if issues:
         raise UnprocessableMediaError(" ".join(issues))
 
-    existing = (
-        await db.execute(select(FaceReference).where(FaceReference.user_id == upload.user_id))
-    ).scalar_one_or_none()
+    return await _upsert_government_id_reference(upload.user_id, upload.upload_id, embedding_json, db)
 
-    now = datetime.utcnow().isoformat()
 
-    if existing is not None:
-        existing.upload_id = upload.upload_id
-        existing.embedding_json = embedding_json
-        existing.enrolled_at = now
-        existing.consent_given_at = now
-        existing.government_id_verified = True
-        await db.flush()
-        return existing
+async def verify_identity_with_selfie(
+    id_upload: Upload, live_upload: Upload, db: AsyncSession,
+) -> tuple[float, str, FaceReference | None]:
+    """Per-attempt identity check (added 2026-10-14, see CLAUDE.md's ProctorLens section): a
+    fresh government-ID photo plus a live selfie taken moments apart, compared for a similarity
+    "confidence score" gated the same way as the existing live-match flow (match_against_reference
+    below) -- this is the check that runs before every exam attempt, not a one-time enrollment
+    step. Both uploads are the caller's to delete immediately after (routes/exams.py), same
+    transient-use convention as verify_government_id.
 
-    reference = FaceReference(
-        reference_id=str(uuid.uuid4()),
-        user_id=upload.user_id,
-        upload_id=upload.upload_id,
-        embedding_json=embedding_json,
-        enrolled_at=now,
-        consent_given_at=now,
-        government_id_verified=True,
-    )
-    db.add(reference)
-    await db.flush()
-    return reference
+    On a MATCH verdict, also refreshes the stored FaceReference to this attempt's ID photo (via
+    the same upsert verify_government_id uses) so the exam's own periodic monitoring checks
+    compare against the identity just confirmed moments ago, not a stale reference from an
+    earlier session. On UNCERTAIN/NO_MATCH, the reference is left untouched and None is returned
+    in its place -- the caller must not start the attempt."""
+    id_embedding = _embed(id_upload.storage_url)
+    detection = _detect_faces(id_upload.storage_url)
+    issues = assess_government_id_quality(id_upload.storage_url, detection)
+    if issues:
+        raise UnprocessableMediaError(" ".join(issues))
+
+    live_embedding = _embed(live_upload.storage_url)
+
+    similarity = _cosine_similarity(id_embedding, live_embedding)
+    verdict = _verdict(similarity, settings.IDENTITY_MATCH_THRESHOLD)
+
+    reference = None
+    if verdict == "MATCH":
+        reference = await _upsert_government_id_reference(
+            id_upload.user_id, id_upload.upload_id, json.dumps(id_embedding), db,
+        )
+    return similarity, verdict, reference
 
 
 async def match_against_reference(

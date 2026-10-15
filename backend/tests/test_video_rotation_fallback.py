@@ -12,10 +12,15 @@ import cv2
 import numpy as np
 import pytest
 
+from app.services.video.model_v1 import common as model_v1_common
 from app.services.video.model_v1 import orientation
 from tests.conftest import BACKEND, TEST_DATA
 
-CKPT = Path(os.getenv("VIDEO_MODEL_V1_CHECKPOINT") or BACKEND / "checkpoints" / "video" / "epoch_11_model_only.pt")
+# Mirrors resolve_checkpoint_path()'s own fallback so this always agrees with whatever checkpoint
+# the backend-under-test picks up implicitly (VideoModelV1RotationAwareBackend.score() calls
+# predict() with no explicit checkpoint) -- a hardcoded path here would silently diverge from the
+# production default whenever that default changes (see CLAUDE.md section 27).
+CKPT = model_v1_common.resolve_checkpoint_path()
 
 
 # ---------------------------------------------------------------- orientation.py, no model/checkpoint needed
@@ -105,14 +110,24 @@ def test_rotation_aware_is_bit_identical_to_v1_when_native_orientation_finds_a_f
 def test_rotation_aware_recovers_the_known_blind_spot_clip():
     """Regression pin for the diagnosed case (CLAUDE.md section 19): `fake video 4.mp4` finds 0/16 faces at
     its native orientation and is pushed toward REAL by the resulting center-crop; the rotation fallback should
-    both find faces and move the raw probability toward (not necessarily across any particular band) FAKE."""
+    both find faces and move the raw probability toward (not necessarily across any particular band) FAKE.
+
+    This is a historical fact about the epoch-11 checkpoint specifically (measured 2026-10-02, CLAUDE.md
+    section 19) -- not a general claim that holds under any checkpoint. Round 4 (the new production default,
+    section 27) was retrained on different data and, measured here, moves the OTHER way on this clip (plain
+    0.300 -> rotated 0.132): the rotation fix's benefit on this file does not carry over to round 4's weights.
+    Section 27 itself flags that sections 19-22's numbers are unverified for round 4. Pinned to epoch_11
+    explicitly (not CKPT/the live default) so this keeps testing the original, still-true epoch-11 finding
+    rather than silently asserting something false about round 4.
+    """
+    epoch_11_ckpt = BACKEND / "checkpoints" / "video" / "epoch_11_model_only.pt"
     path = r"C:\fake photos\fake video 4.mp4"
-    if not CKPT.is_file() or not os.path.isfile(path):
-        pytest.skip("video checkpoint or sample video not present")
+    if not epoch_11_ckpt.is_file() or not os.path.isfile(path):
+        pytest.skip("epoch-11 checkpoint or sample video not present")
     from app.services.video.model_v1 import optimized, rotation_aware
 
-    plain = optimized.predict(path, str(CKPT))
-    rotated = rotation_aware.predict(path, str(CKPT))
+    plain = optimized.predict(path, str(epoch_11_ckpt))
+    rotated = rotation_aware.predict(path, str(epoch_11_ckpt))
 
     assert rotated.rotation_degrees != 0
     assert rotated.probability > plain.probability

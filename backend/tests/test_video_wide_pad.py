@@ -10,10 +10,15 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from app.services.video.model_v1 import common as model_v1_common
 from app.services.video.model_v1 import wide_pad
 from tests.conftest import BACKEND
 
-CKPT = Path(os.getenv("VIDEO_MODEL_V1_CHECKPOINT") or BACKEND / "checkpoints" / "video" / "epoch_11_model_only.pt")
+# Mirrors resolve_checkpoint_path()'s own fallback so this always agrees with whatever checkpoint
+# the backend-under-test picks up implicitly (VideoModelV1WidePadBackend.score() calls predict()
+# with no explicit checkpoint) -- a hardcoded path here would silently diverge from the production
+# default whenever that default changes (see CLAUDE.md section 27).
+CKPT = model_v1_common.resolve_checkpoint_path()
 
 
 def test_wide_padding_produces_a_larger_crop_than_default_padding():

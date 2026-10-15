@@ -49,7 +49,7 @@ export default function ExamResult() {
 
             {attempt && (
               <>
-                <p className="tl-hud-label !text-brass">Exam Result</p>
+                <p className="tl-hud-label !text-brass">ProctorLens</p>
                 {(() => {
                   const info = STATUS_INFO[attempt.status] || STATUS_INFO.in_progress
                   const Icon = info.Icon
@@ -76,8 +76,8 @@ export default function ExamResult() {
                 >
                   <Download size={14} strokeWidth={1.75} /> {downloading ? 'Downloading…' : 'Download Session Report'}
                 </button>
-                <Link to="/dashboard" className="text-[12px] text-bone-faint hover:text-bone link-underline">
-                  Back to Dashboard
+                <Link to="/proctorlens" className="text-[12px] text-bone-faint hover:text-bone link-underline">
+                  Back to ProctorLens
                 </Link>
               </>
             )}

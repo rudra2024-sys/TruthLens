@@ -4,6 +4,7 @@ import { Download, ShieldAlert, ShieldCheck } from 'lucide-react'
 import FaceOverlay from './components/FaceOverlay'
 import LiveFaceMesh from './components/LiveFaceMesh'
 import useMonitoringSession from './hooks/useMonitoringSession'
+import { REASON_LABELS, EVENT_LABELS } from './monitoringLabels'
 import { downloadSessionReport, getIdentityReference, getMyOrganization } from './api/client'
 
 const ArrowRight = () => (
@@ -11,31 +12,6 @@ const ArrowRight = () => (
     <path d="M3 8H13" /><path d="M9 4L13 8L9 12" />
   </svg>
 )
-
-const REASON_LABELS = {
-  no_face: 'No face detected',
-  multiple_faces: 'Multiple faces detected',
-  identity_mismatch: 'Identity mismatch',
-  identity_uncertain: 'Identity uncertain',
-  deepfake_signal: 'Possible AI manipulation',
-  deepfake_uncertain: 'Manipulation uncertain',
-  looking_away: 'Looking away',
-  talking_detected: 'Talking detected',
-  object_detected: 'Unauthorized object detected',
-  device_mismatch_suspected: 'Possible device change',
-  static_image_suspected: 'Possible static photo detected',
-}
-
-const EVENT_LABELS = {
-  tab_hidden: 'Tab hidden',
-  window_blurred: 'Window lost focus',
-  clipboard_paste: 'Clipboard paste',
-  devtools_suspected: 'Devtools suspected',
-  camera_interrupted: 'Camera interrupted',
-  live_no_face: 'Live: no face detected',
-  live_looking_away: 'Live: looking away',
-  live_multiple_faces: 'Live: second person detected',
-}
 
 function CheckRow({ check }) {
   const time = new Date(check.checked_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
@@ -134,6 +110,12 @@ export default function MonitoringSession() {
             <p className="text-[16px] text-bone-dim max-w-[560px] mx-auto">
               Requires camera and microphone access. Review what's tracked before you begin.
             </p>
+          </div>
+
+          <div className="max-w-[520px] mx-auto mb-8 text-center text-[12px] text-bone-dim bg-panel border border-line rounded-[6px] px-5 py-3">
+            This is a practice check only — there are no exam questions here. To take a real
+            exam, go to{' '}
+            <Link to="/proctorlens" className="text-brass hover:text-bone link-underline">ProctorLens</Link>.
           </div>
 
           <div className="bg-panel border border-line rounded-[6px] p-10 md:p-12">

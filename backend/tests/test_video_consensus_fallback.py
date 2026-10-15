@@ -13,10 +13,15 @@ import cv2
 import numpy as np
 import pytest
 
+from app.services.video.model_v1 import common as model_v1_common
 from app.services.video.model_v1 import consensus
 from tests.conftest import BACKEND, TEST_DATA
 
-CKPT = Path(os.getenv("VIDEO_MODEL_V1_CHECKPOINT") or BACKEND / "checkpoints" / "video" / "epoch_11_model_only.pt")
+# Mirrors resolve_checkpoint_path()'s own fallback so this always agrees with whatever checkpoint
+# the backend-under-test picks up implicitly (VideoModelV1ConsensusBackend.score() calls predict()
+# with no explicit checkpoint) -- a hardcoded path here would silently diverge from the production
+# default whenever that default changes (see CLAUDE.md section 27).
+CKPT = model_v1_common.resolve_checkpoint_path()
 
 
 # ---------------------------------------------------------------- consensus.py, no model/checkpoint needed

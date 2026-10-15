@@ -588,7 +588,7 @@ function ExamsPanel() {
   return (
     <div className="mt-8">
       <div className="flex items-center justify-between mb-3">
-        <p className="tl-hud-label !text-[9px]">Your Exams</p>
+        <p className="tl-hud-label !text-[9px]">ProctorLens Exams</p>
         {!creating && (
           <button
             type="button"

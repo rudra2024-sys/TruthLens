@@ -7,6 +7,7 @@ import {
   startMonitoringSession,
   uploadMedia,
 } from '../api/client'
+import { REASON_LABELS } from '../monitoringLabels'
 
 /**
  * Extracted from MonitoringSession.jsx (added 2026-10-12) so the exam-taking page can reuse the
@@ -31,9 +32,14 @@ import {
 const CHECK_POLL_INTERVAL_MS = 300
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
-const NORMAL_INTERVAL_MS = 20000
-const HEIGHTENED_INTERVAL_MS = 5000
-const HEIGHTENED_WINDOW_MS = 60000
+// Tightened 2026-10-15: the camera-based check (face/identity/object/talking) only runs on this
+// timer -- tab-switch/paste/devtools are event-driven and already instant, but a student holding
+// up a phone or notes previously had up to 20s before the next check could catch it. The
+// CheckJobManager has its own concurrency (MONITORING_CHECK_JOB_CONCURRENCY, default 4) separate
+// from video-detection jobs, so a faster cadence here doesn't contend with scan jobs.
+const NORMAL_INTERVAL_MS = 8000
+const HEIGHTENED_INTERVAL_MS = 3000
+const HEIGHTENED_WINDOW_MS = 90000
 
 const AWAY_THRESHOLD_S = 2
 const DEVTOOLS_CHECK_MS = 2000
@@ -60,14 +66,29 @@ const recordAudioClip = (stream, durationMs = AUDIO_CLIP_MS) => new Promise((res
   setTimeout(() => { if (recorder.state !== 'inactive') recorder.stop() }, durationMs)
 })
 
+// Every key the backend's own REASON_LABELS (session_report.py) can produce needs an entry here
+// -- this used to cover only 5 of 11 reasons, so a check flagged for e.g. object_detected or
+// talking_detected incremented the flag count with no explanation shown to the student at all.
 const REASON_GUIDANCE = {
   no_face: "We can't see your face. Center it in frame, forehead to chin, with nothing blocking it.",
   multiple_faces: 'More than one face is in frame. Make sure only you are visible.',
   identity_uncertain: "We're having trouble matching you to your reference photo. Face the camera directly in good light.",
   identity_mismatch: "This doesn't look like a match to your reference photo. Face the camera directly in good light.",
   static_image_suspected: 'This looks like it might be a still photo rather than a live feed. Move naturally in frame.',
+  deepfake_signal: 'Signs of video manipulation were detected. Make sure this is a real, unaltered camera feed -- no filters, virtual cameras, or pre-recorded video.',
+  deepfake_uncertain: "We couldn't confirm this is a clean, unaltered live feed. Make sure this is a real camera, not a filter or virtual camera.",
+  looking_away: 'Keep your eyes on the screen -- looking away for long stretches gets flagged.',
+  talking_detected: 'Talking was detected. If this exam requires silence, please stop talking.',
+  object_detected: 'An unauthorized object (phone, book, notes, etc.) was seen in frame. Remove it from view.',
+  device_mismatch_suspected: 'This looks like a different camera/device than before. Keep using the same one for the rest of the exam.',
 }
-const REASON_GUIDANCE_PRIORITY = ['no_face', 'multiple_faces', 'identity_mismatch', 'identity_uncertain', 'static_image_suspected']
+// Order only affects which reason's text wins when a single check carries several at once --
+// every key in REASON_LABELS still gets guidance via the fallback below even if it's missing here.
+const REASON_GUIDANCE_PRIORITY = [
+  'no_face', 'multiple_faces', 'identity_mismatch', 'identity_uncertain', 'static_image_suspected',
+  'deepfake_signal', 'deepfake_uncertain', 'object_detected', 'talking_detected', 'looking_away',
+  'device_mismatch_suspected',
+]
 
 export default function useMonitoringSession({ onCheck, startSessionFn = startMonitoringSession } = {}) {
   const [session, setSession] = useState(null)
@@ -103,6 +124,20 @@ export default function useMonitoringSession({ onCheck, startSessionFn = startMo
   }
 
   useEffect(() => () => { stopScheduledCheck(); stopStream() }, [])
+
+  // Re-attach the already-acquired stream once a `session` update causes a re-render -- a
+  // consumer whose <video> only mounts once an attempt/session exists (e.g. ExamAttempt.jsx,
+  // where the camera box is inside the `attempt.status === 'in_progress'` branch) has a null
+  // videoRef.current at the point startSession() first tries to set srcObject, so that initial
+  // assignment is silently skipped (black box, no feed, LiveFaceMesh never gets a video width to
+  // work with). MonitoringSession.jsx always renders its <video> up front, so this is a no-op
+  // there (srcObject already matches).
+  useEffect(() => {
+    if (session && streamRef.current && videoRef.current && videoRef.current.srcObject !== streamRef.current) {
+      videoRef.current.srcObject = streamRef.current
+      videoRef.current.play().catch(() => {})
+    }
+  }, [session])
 
   const postEvent = useCallback((eventType, detail) => {
     const activeSession = sessionRef.current
@@ -240,28 +275,32 @@ export default function useMonitoringSession({ onCheck, startSessionFn = startMo
     runCheck().then(scheduleNextCheck)
   }, [postEvent, runCheck, scheduleNextCheck])
 
+  const acquireCameraStream = async () => {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: true })
+    streamRef.current = stream
+    deliberateStopRef.current = false
+    const [track] = stream.getVideoTracks()
+    if (track) {
+      track.onended = () => {
+        if (deliberateStopRef.current) return
+        postEvent('camera_interrupted', 'track ended')
+      }
+      track.onmute = () => {
+        if (deliberateStopRef.current) return
+        postEvent('camera_interrupted', 'muted')
+      }
+    }
+    if (videoRef.current) {
+      videoRef.current.srcObject = stream
+      await videoRef.current.play()
+    }
+  }
+
   const startSession = async () => {
     setStarting(true)
     setError(null)
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: true })
-      streamRef.current = stream
-      deliberateStopRef.current = false
-      const [track] = stream.getVideoTracks()
-      if (track) {
-        track.onended = () => {
-          if (deliberateStopRef.current) return
-          postEvent('camera_interrupted', 'track ended')
-        }
-        track.onmute = () => {
-          if (deliberateStopRef.current) return
-          postEvent('camera_interrupted', 'muted')
-        }
-      }
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream
-        await videoRef.current.play()
-      }
+      await acquireCameraStream()
       const started = await startSessionFn()
       setSession(started)
       sessionRef.current = started
@@ -271,6 +310,33 @@ export default function useMonitoringSession({ onCheck, startSessionFn = startMo
       lastFlagAtRef.current = 0
       scheduleNextCheck()
       return started
+    } catch (err) {
+      stopStream()
+      setError(err?.message || 'Could not access the camera.')
+      return null
+    } finally {
+      setStarting(false)
+    }
+  }
+
+  // Re-join an attempt/session that already exists server-side (e.g. the student reloaded the
+  // exam page, or came back via ProctorLens's "Continue" link) -- same camera-acquisition path
+  // as startSession, but skips startSessionFn entirely so it never tries to create a second
+  // attempt (which the backend would reject: one in_progress attempt per student at a time, see
+  // services/exams/attempts.py::start_attempt). `existing` only needs a `.session_id`.
+  const resumeSession = async (existing) => {
+    setStarting(true)
+    setError(null)
+    try {
+      await acquireCameraStream()
+      setSession(existing)
+      sessionRef.current = existing
+      setLastSessionId(existing.session_id)
+      setChecks([])
+      setEvents([])
+      lastFlagAtRef.current = 0
+      scheduleNextCheck()
+      return existing
     } catch (err) {
       stopStream()
       setError(err?.message || 'Could not access the camera.')
@@ -293,12 +359,18 @@ export default function useMonitoringSession({ onCheck, startSessionFn = startMo
 
   const lastCheck = checks[0]
   const flaggedCount = checks.filter((c) => c.flagged).length + events.length
-  const guidanceReason = lastCheck?.flag_reasons?.find((r) => REASON_GUIDANCE_PRIORITY.includes(r))
-  const guidanceText = guidanceReason ? REASON_GUIDANCE[guidanceReason] : null
+  // Prefer a reason this list has ordered (for consistent wording when several fire at once), but
+  // fall back to the first reason present either way -- a reason with no custom copy still gets
+  // its backend label surfaced instead of showing nothing.
+  const guidanceReason =
+    lastCheck?.flag_reasons?.find((r) => REASON_GUIDANCE_PRIORITY.includes(r)) || lastCheck?.flag_reasons?.[0]
+  const guidanceText = guidanceReason
+    ? REASON_GUIDANCE[guidanceReason] || `Flagged: ${REASON_LABELS[guidanceReason] || guidanceReason}. Please correct this and continue.`
+    : null
 
   return {
     videoRef, session, checks, events, error, setError, starting, lastSessionId,
-    startSession, stopSession, handleSustainedIssue,
+    startSession, resumeSession, stopSession, handleSustainedIssue,
     lastCheck, flaggedCount, guidanceText,
   }
 }

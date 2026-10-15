@@ -347,6 +347,14 @@ export const deleteExamQuestion = async (examId, questionId) => {
   }
 }
 
+export const listMyExams = async () => {
+  try {
+    return (await api.get('/exams/mine')).data
+  } catch (err) {
+    throw new Error(friendlyError(err))
+  }
+}
+
 export const getExam = async (examId) => {
   try {
     return (await api.get(`/exams/${examId}`)).data
@@ -358,6 +366,16 @@ export const getExam = async (examId) => {
 export const getExamQuestions = async (examId) => {
   try {
     return (await api.get(`/exams/${examId}/questions`)).data
+  } catch (err) {
+    throw new Error(friendlyError(err))
+  }
+}
+
+export const verifyIdentityForAttempt = async (examId, idUploadId, liveUploadId, consent = true) => {
+  try {
+    return (await api.post(`/exams/${examId}/attempts/verify-identity`, {
+      id_upload_id: idUploadId, live_upload_id: liveUploadId, consent,
+    })).data
   } catch (err) {
     throw new Error(friendlyError(err))
   }

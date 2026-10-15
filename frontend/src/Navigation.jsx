@@ -59,7 +59,10 @@ const Navigation = () => {
         }]
       : []),
     { label: 'Verify', link: '/verify', ariaLabel: 'Go to verify' },
-    ...(user && !isOrg ? [{ label: 'Identity', link: '/identity', ariaLabel: 'Go to identity verification' }] : []),
+    // Single entry point for the whole identity-verified, continuously-monitored exam system --
+    // was two separate links ('Identity' and 'Exams') until 2026-10-14; ProctorLens itself
+    // guides an unverified student to /identity and back, so it doesn't need its own nav item.
+    ...(user && !isOrg ? [{ label: 'ProctorLens', link: '/proctorlens', ariaLabel: 'Go to ProctorLens' }] : []),
     { label: 'History', link: '/history', ariaLabel: 'Go to history' },
     { label: 'Reports', link: '/reports', ariaLabel: 'Go to reports' },
     { label: 'About', link: '/about', ariaLabel: 'Go to about' },

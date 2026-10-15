@@ -63,7 +63,7 @@ class Settings(BaseSettings):
     # a labeled dataset of real enrollment photos. See services/identity/enrollment_quality.py.
     ENROLLMENT_MIN_FACE_AREA_FRACTION: float = 0.08
     ENROLLMENT_EDGE_MARGIN_PX: float = 4.0
-    ENROLLMENT_MIN_BLUR_VARIANCE: float = 80.0
+    ENROLLMENT_MIN_BLUR_VARIANCE: float = 5.0
 
     # Comma-separated browser origins allowed to call the API. "*" (the default) keeps the historical open behaviour
     # for development; set it to your site's origin in production (see docs/DEPLOYMENT.md).

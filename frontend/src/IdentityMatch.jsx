@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Upload as UploadIcon, ShieldQuestion, Building2, Download, CreditCard, Camera } from 'lucide-react'
+import { Upload as UploadIcon, ShieldQuestion, Building2, Download, CreditCard } from 'lucide-react'
 import {
   deleteIdentityReference,
   downloadSessionReport,
@@ -14,6 +14,7 @@ import {
   verifyGovernmentId,
 } from './api/client'
 import ConfidenceGauge from './components/ConfidenceGauge'
+import GovernmentIdCapture from './components/GovernmentIdCapture'
 import WebcamCapture from './components/WebcamCapture'
 import { getIdentityMatchInfo } from './lib/identityVerdict'
 
@@ -156,8 +157,9 @@ function EnrollmentChoice({ onChooseId, onChooseSelfie }) {
   return (
     <div className="flex flex-col items-center gap-6 max-w-[420px]">
       <p className="text-[13px] text-bone-dim text-center leading-relaxed">
-        Choose how to prove it's you. Government-ID verification is required before taking a
-        proctored exam; a plain photo is enough for ad-hoc identity checks only.
+        Choose how to prove it's you, for ad-hoc identity checks and practice monitoring sessions
+        here. ProctorLens exams don't use this — each exam attempt runs its own fresh ID check
+        when you start it.
       </p>
       <button
         type="button"
@@ -168,7 +170,7 @@ function EnrollmentChoice({ onChooseId, onChooseSelfie }) {
         <div>
           <p className="text-[14px] text-bone font-medium">Verify with a government ID</p>
           <p className="text-[12px] text-bone-dim mt-0.5">
-            Aadhaar, PAN, or similar — matched live against your camera. Required for exams.
+            Aadhaar, PAN, or similar — matched live against your camera.
           </p>
         </div>
       </button>
@@ -177,73 +179,8 @@ function EnrollmentChoice({ onChooseId, onChooseSelfie }) {
         onClick={onChooseSelfie}
         className="text-[12px] text-bone-faint hover:text-bone link-underline"
       >
-        Use a plain photo instead (no exam access)
+        Use a plain photo instead
       </button>
-    </div>
-  )
-}
-
-function GovernmentIdCapture({ busy, error, consented, onConsentChange, onFile }) {
-  const [mode, setMode] = useState(null) // null=choice, 'upload', 'camera'
-  const inputRef = useRef(null)
-  const disabled = busy || !consented
-
-  if (mode === 'camera') {
-    return (
-      <WebcamCapture
-        onCapture={onFile}
-        onCancel={() => setMode(null)}
-        facingMode="environment"
-        mirror={false}
-        className="w-full"
-      />
-    )
-  }
-
-  return (
-    <div className="flex flex-col items-center gap-5 w-full">
-      <label className="flex items-start gap-3 max-w-[420px] text-left cursor-pointer select-none">
-        <input
-          type="checkbox"
-          checked={consented}
-          onChange={(e) => onConsentChange(e.target.checked)}
-          disabled={busy}
-          className="mt-0.5 shrink-0 accent-brass"
-        />
-        <span className="text-[12px] text-bone-dim leading-relaxed">
-          I consent to TruthLens using this ID photo momentarily to verify my identity. The photo
-          itself is never stored — only a resulting face-match embedding is kept, exactly like a
-          plain reference photo.
-        </span>
-      </label>
-      <div className="flex items-center gap-4 w-full max-w-[420px]">
-        <button
-          type="button"
-          disabled={disabled}
-          onClick={() => setMode('camera')}
-          className="flex-1 flex items-center justify-center gap-2 bg-brass text-ground px-5 py-3 rounded-[3px] text-[12px] font-medium tracking-[0.08em] uppercase btn-lift disabled:opacity-40 disabled:pointer-events-none"
-        >
-          <Camera size={14} strokeWidth={1.75} /> Photograph ID
-        </button>
-        <button
-          type="button"
-          disabled={disabled}
-          onClick={() => inputRef.current?.click()}
-          className="flex-1 flex items-center justify-center gap-2 border border-line-strong text-bone-dim px-5 py-3 rounded-[3px] text-[12px] font-medium tracking-[0.08em] uppercase hover:border-brass hover:text-brass transition-colors duration-300 disabled:opacity-40 disabled:pointer-events-none"
-        >
-          <UploadIcon size={14} strokeWidth={1.75} /> Upload Photo
-        </button>
-        <input
-          ref={inputRef}
-          type="file"
-          accept={REFERENCE_ACCEPT}
-          className="hidden"
-          disabled={disabled}
-          onChange={(e) => { const f = e.target.files[0]; if (f) onFile(f) }}
-        />
-      </div>
-      {!consented && <p className="text-[12px] text-bone-faint">Check the box above to continue</p>}
-      {error && <p className="text-[13px] text-verdictDanger max-w-[360px] text-center">{error}</p>}
     </div>
   )
 }
@@ -607,9 +544,9 @@ export default function IdentityMatch() {
                 </button>
                 <Link
                   to="/identity/monitor"
-                  className="text-[12px] font-medium tracking-[0.06em] text-brass hover:text-bone link-underline"
+                  className="text-[11px] tracking-[0.06em] text-bone-faint hover:text-bone link-underline"
                 >
-                  Start Monitoring Session
+                  Try a practice monitoring check (no exam questions)
                 </Link>
                 <button
                   type="button"

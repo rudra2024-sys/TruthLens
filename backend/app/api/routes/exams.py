@@ -20,22 +20,35 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.routes.auth import get_current_organization, get_current_user
+from app.core.config import settings
 from app.core.database import get_db
-from app.models.models import Exam, ExamAttempt, ExamQuestion, MonitoringCheck, User
+from app.models.models import Exam, ExamAttempt, ExamQuestion, MonitoringCheck, Upload, User
 from app.schemas.schemas import (
     ExamAnswerIn,
     ExamAnswerOut,
     ExamAttemptOut,
     ExamAttemptStartIn,
+    ExamIdentityVerifyIn,
+    ExamIdentityVerifyOut,
     ExamIn,
     ExamOut,
     ExamQuestionAdminOut,
     ExamQuestionIn,
     ExamQuestionPublicOut,
 )
+from app.services.account_deletion import _remove_file
+from app.services.detection_errors import UnprocessableMediaError
 from app.services.exams.attempts import AttemptClosedError, AttemptStartError, finish_attempt, start_attempt, submit_answer
+from app.services.identity.detector import verify_identity_with_selfie
 
 router = APIRouter(prefix="/exams", tags=["Exams"])
+
+
+async def _owned_upload(db: AsyncSession, upload_id: str, user: User) -> Upload:
+    upload = (await db.execute(select(Upload).where(Upload.upload_id == upload_id))).scalar_one_or_none()
+    if not upload or upload.user_id != user.user_id:
+        raise HTTPException(404, "Upload not found.")
+    return upload
 
 
 # ---- org-side: exam + question management -----------------------------------------------------
@@ -51,6 +64,21 @@ async def _question_count(db: AsyncSession, exam_id: str) -> int:
     return (
         await db.execute(select(func.count()).select_from(ExamQuestion).where(ExamQuestion.exam_id == exam_id))
     ).scalar_one()
+
+
+async def _latest_attempt(db: AsyncSession, exam_id: str, user_id: str) -> ExamAttempt | None:
+    """Used by both list_my_exams and get_exam so a single-exam fetch (e.g. the exam-taking page
+    reloading after a "Continue" click) sees the same my_attempt_id/status the exam list already
+    showed -- without this, a page that only calls GET /{exam_id} has no way to know an in_progress
+    attempt already exists and can't offer to resume it."""
+    return (
+        await db.execute(
+            select(ExamAttempt)
+            .where(ExamAttempt.exam_id == exam_id)
+            .where(ExamAttempt.user_id == user_id)
+            .order_by(ExamAttempt.started_at.desc())
+        )
+    ).scalars().first()
 
 
 @router.post("", response_model=ExamOut, status_code=201)
@@ -205,6 +233,42 @@ async def delete_question(
 
 # ---- student-side: viewing an exam + taking an attempt -----------------------------------------
 
+@router.get("/mine", response_model=list[ExamOut])
+async def list_my_exams(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Active exams belonging to the organisation the current student has joined, each annotated
+    with that student's own latest attempt (if any) so the frontend can render Start/Resume/View
+    Result without a second round trip per exam. Registered before /{exam_id} so "mine" is never
+    swallowed as a literal exam_id. Empty list (not an error) if the student hasn't joined an
+    organisation yet -- same 404-not-403-elsewhere convention doesn't apply here since this isn't
+    ownership of a specific resource, just "what's visible to me right now"."""
+    if current_user.organization_id is None:
+        return []
+    exams = (
+        await db.execute(
+            select(Exam)
+            .where(Exam.organization_id == current_user.organization_id)
+            .where(Exam.is_active == True)  # noqa: E712
+            .order_by(Exam.created_at.desc())
+        )
+    ).scalars().all()
+
+    out = []
+    for exam in exams:
+        count = await _question_count(db, exam.exam_id)
+        latest_attempt = await _latest_attempt(db, exam.exam_id, current_user.user_id)
+        out.append(ExamOut(
+            exam_id=exam.exam_id, organization_id=exam.organization_id, title=exam.title,
+            pass_threshold=exam.pass_threshold, max_flags=exam.max_flags, is_active=exam.is_active,
+            created_at=exam.created_at, question_count=count,
+            my_attempt_id=latest_attempt.attempt_id if latest_attempt else None,
+            my_attempt_status=latest_attempt.status if latest_attempt else None,
+        ))
+    return out
+
+
 @router.get("/{exam_id}", response_model=ExamOut)
 async def get_exam(
     exam_id: str,
@@ -218,10 +282,13 @@ async def get_exam(
     if exam is None or exam.organization_id != current_user.organization_id or not exam.is_active:
         raise HTTPException(404, "Exam not found.")
     count = await _question_count(db, exam.exam_id)
+    latest_attempt = await _latest_attempt(db, exam.exam_id, current_user.user_id)
     return ExamOut(
         exam_id=exam.exam_id, organization_id=exam.organization_id, title=exam.title,
         pass_threshold=exam.pass_threshold, max_flags=exam.max_flags, is_active=exam.is_active,
         created_at=exam.created_at, question_count=count,
+        my_attempt_id=latest_attempt.attempt_id if latest_attempt else None,
+        my_attempt_status=latest_attempt.status if latest_attempt else None,
     )
 
 
@@ -271,6 +338,48 @@ def _attempt_out(attempt: ExamAttempt, exam: Exam, flagged_checks: int) -> ExamA
         attempt_id=attempt.attempt_id, exam_id=attempt.exam_id, session_id=attempt.session_id,
         status=attempt.status, score=attempt.score, started_at=attempt.started_at, ended_at=attempt.ended_at,
         flagged_checks=flagged_checks, max_flags=exam.max_flags,
+    )
+
+
+@router.post("/{exam_id}/attempts/verify-identity", response_model=ExamIdentityVerifyOut)
+async def post_verify_identity_for_attempt(
+    exam_id: str,
+    body: ExamIdentityVerifyIn,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """The per-attempt confidence check that runs before every exam attempt (not a one-time
+    enrollment) -- a fresh government-ID photo plus a live selfie, compared for similarity. On a
+    MATCH verdict this also refreshes the student's FaceReference to this attempt's ID photo, so
+    POST /{exam_id}/attempts (right after) will pass its own government_id_verified check and the
+    exam's periodic monitoring compares against the identity just confirmed. Both uploads are
+    deleted immediately after use either way, same transient-use convention as
+    /identity/verify-government-id."""
+    exam = (await db.execute(select(Exam).where(Exam.exam_id == exam_id))).scalar_one_or_none()
+    if exam is None or not exam.is_active:
+        raise HTTPException(404, "Exam not found.")
+    if current_user.organization_id != exam.organization_id:
+        raise HTTPException(400, "Join this exam's organisation before starting.")
+    if body.consent is not True:
+        raise HTTPException(400, "Consent is required to verify your identity.")
+
+    id_upload = await _owned_upload(db, body.id_upload_id, current_user)
+    live_upload = await _owned_upload(db, body.live_upload_id, current_user)
+
+    try:
+        similarity, verdict, _reference = await verify_identity_with_selfie(id_upload, live_upload, db)
+    except UnprocessableMediaError as e:
+        raise HTTPException(422, str(e))
+    finally:
+        _remove_file(id_upload.storage_url)
+        await db.delete(id_upload)
+        _remove_file(live_upload.storage_url)
+        await db.delete(live_upload)
+        await db.flush()
+
+    return ExamIdentityVerifyOut(
+        similarity=similarity, verdict=verdict, passed=verdict == "MATCH",
+        threshold=settings.IDENTITY_MATCH_THRESHOLD,
     )
 
 
