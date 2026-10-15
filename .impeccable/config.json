@@ -11,6 +11,12 @@
         ],
         "createdAt": "2026-09-09T19:49:17.650Z",
         "reason": "pre-existing .sm-toggle styling from before this session, not introduced by tonight's greeting/scroll-fix changes; out of scope to redesign unrequested"
+      },
+      {
+        "rule": "overused-font",
+        "value": "inter",
+        "createdAt": "2026-10-15T03:35:13.888Z",
+        "reason": "pre-existing project design system (Forensic Evidence Bench, index.css), not touched this session; same Inter font reference in the Google Fonts import URL"
       }
     ]
   }
