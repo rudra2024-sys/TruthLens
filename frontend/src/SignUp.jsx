@@ -80,7 +80,7 @@ export default function SignUp() {
       const response = await signup(name, email, password, accountType)
       saveAuth(response.data)
       refresh()
-      navigate(response.data.role === 'organization' || response.data.role === 'admin' ? '/admin' : '/dashboard')
+      navigate('/')
     } catch (err) {
       setError(err.message)
       if (!reduced) controls.start({ x: [0, -8, 8, -5, 5, 0], transition: { duration: 0.45 } })

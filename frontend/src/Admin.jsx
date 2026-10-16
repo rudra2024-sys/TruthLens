@@ -105,8 +105,8 @@ function JoinCodePanel() {
             </button>
           </div>
           <p className="text-[12px] text-bone-dim max-w-[360px]">
-            Share this with your students — they enter it once, before enrolling, to link their
-            sessions to you.
+            Share this with your students — they enter it once on the ProctorLens page to see
+            the exams you've created.
           </p>
           {!confirmingRegenerate ? (
             <button
@@ -686,20 +686,49 @@ function downloadSessionsCsv(sessions) {
   window.URL.revokeObjectURL(blobUrl)
 }
 
+const TABS = [
+  { id: 'setup', label: 'Setup' },
+  { id: 'exams', label: 'Exams' },
+  { id: 'activity', label: 'Activity' },
+]
+
+function TabBar({ active, onChange }) {
+  return (
+    <div className="flex items-center gap-1 mt-8 border-b border-line w-fit">
+      {TABS.map((tab) => (
+        <button
+          key={tab.id}
+          type="button"
+          onClick={() => onChange(tab.id)}
+          className={`px-5 py-3 text-[13px] font-medium tracking-[0.06em] uppercase transition-colors duration-300 border-b-2 -mb-px ${
+            active === tab.id
+              ? 'text-brass border-brass'
+              : 'text-bone-faint border-transparent hover:text-bone'
+          }`}
+        >
+          {tab.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 export default function Admin() {
+  const [activeTab, setActiveTab] = useState('setup')
   const [sessions, setSessions] = useState(undefined)
   const [error, setError] = useState(null)
   const [flaggedOnly, setFlaggedOnly] = useState(false)
   const [openSessionId, setOpenSessionId] = useState(null)
 
   useEffect(() => {
+    if (activeTab !== 'activity') return
     let cancelled = false
     setSessions(undefined)
     getAdminSessions({ flaggedOnly })
       .then((rows) => { if (!cancelled) setSessions(rows) })
       .catch((err) => { if (!cancelled) setError(err.message) })
     return () => { cancelled = true }
-  }, [flaggedOnly])
+  }, [activeTab, flaggedOnly])
 
   return (
     <div className="min-h-screen bg-ground pt-[72px]">
@@ -710,7 +739,31 @@ export default function Admin() {
           <h1 className="font-serif text-display-l text-bone">
             Your students,<br /><span className="italic text-brass">under watch.</span>
           </h1>
-          <label className="flex items-center gap-2 mt-6 cursor-pointer select-none w-fit">
+          <TabBar active={activeTab} onChange={setActiveTab} />
+        </div>
+      </section>
+
+      {activeTab === 'setup' && (
+        <section className="pt-12 pb-24 md:pb-32">
+          <div className="max-w-[1100px] mx-auto px-6 md:px-12 lg:px-16">
+            <JoinCodePanel />
+            <RosterPanel />
+          </div>
+        </section>
+      )}
+
+      {activeTab === 'exams' && (
+        <section className="pt-12 pb-24 md:pb-32">
+          <div className="max-w-[1100px] mx-auto px-6 md:px-12 lg:px-16">
+            <ExamsPanel />
+          </div>
+        </section>
+      )}
+
+      {activeTab === 'activity' && (
+      <section className="pt-12 pb-24 md:pb-32">
+        <div className="max-w-[1100px] mx-auto px-6 md:px-12 lg:px-16">
+          <label className="flex items-center gap-2 mb-6 cursor-pointer select-none w-fit">
             <input
               type="checkbox"
               checked={flaggedOnly}
@@ -719,14 +772,6 @@ export default function Admin() {
             />
             <span className="text-[13px] text-bone-dim">Flagged sessions only</span>
           </label>
-          <JoinCodePanel />
-          <RosterPanel />
-          <ExamsPanel />
-        </div>
-      </section>
-
-      <section className="pb-24 md:pb-32">
-        <div className="max-w-[1100px] mx-auto px-6 md:px-12 lg:px-16 mt-12">
           {sessions === undefined && !error && <LoadingState label="Loading sessions" />}
 
           {error && (
@@ -791,6 +836,7 @@ export default function Admin() {
           )}
         </div>
       </section>
+      )}
     </div>
   )
 }

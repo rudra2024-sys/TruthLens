@@ -60,8 +60,9 @@ const Navigation = () => {
       : []),
     { label: 'Verify', link: '/verify', ariaLabel: 'Go to verify' },
     // Single entry point for the whole identity-verified, continuously-monitored exam system --
-    // was two separate links ('Identity' and 'Exams') until 2026-10-14; ProctorLens itself
-    // guides an unverified student to /identity and back, so it doesn't need its own nav item.
+    // was two separate links ('Identity' and 'Exams') until 2026-10-14. The standalone
+    // ad-hoc identity/practice-monitoring page was removed entirely (2026-10-16); ProctorLens
+    // now handles organisation linking inline, so there's nothing left for a second nav item.
     ...(user && !isOrg ? [{ label: 'ProctorLens', link: '/proctorlens', ariaLabel: 'Go to ProctorLens' }] : []),
     { label: 'History', link: '/history', ariaLabel: 'Go to history' },
     { label: 'Reports', link: '/reports', ariaLabel: 'Go to reports' },

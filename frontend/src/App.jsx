@@ -23,8 +23,6 @@ const About = lazy(() => import('./About'))
 const Login = lazy(() => import('./Login'))
 const SignUp = lazy(() => import('./SignUp'))
 const ReportDetail = lazy(() => import('./ReportDetail'))
-const IdentityMatch = lazy(() => import('./IdentityMatch'))
-const MonitoringSession = lazy(() => import('./MonitoringSession'))
 const Admin = lazy(() => import('./Admin'))
 const ProctorLens = lazy(() => import('./ProctorLens'))
 const ExamAttempt = lazy(() => import('./ExamAttempt'))
@@ -210,22 +208,6 @@ function AnimatedRoutes() {
         element={
           <ProtectedRoute>
             <Layout><PageTransition pathKey={p}><ReportDetail /></PageTransition></Layout>
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/identity"
-        element={
-          <ProtectedRoute>
-            <Layout><PageTransition pathKey={p}><IdentityMatch /></PageTransition></Layout>
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/identity/monitor"
-        element={
-          <ProtectedRoute>
-            <Layout><PageTransition pathKey={p}><MonitoringSession /></PageTransition></Layout>
           </ProtectedRoute>
         }
       />
