@@ -1,3 +1,5 @@
+import logging
+import math
 import os
 import time
 import uuid
@@ -11,6 +13,9 @@ from app.pipelines.image.inference import ImagePipeline
 from app.pipelines.image_clip.inference import ClipPipeline
 from app.services.detection_errors import UnprocessableMediaError
 from app.services.calibration import calibrate
+from app.services.image import face_swap
+
+logger = logging.getLogger(__name__)
 
 
 # Load the trained image models once when this module is imported.
@@ -96,6 +101,15 @@ async def run_image_detection(
     fake_probability = max(
         convnext_fake_probability, clip_fake_probability
     )
+
+    # Face-swap check (CLAUDE.md section 28). The whole-image models above are near chance on face swaps (a swap is
+    # a real photo with one face replaced); Video Model v1 round 4, run on the detected face crop, is not. Applies
+    # only when a frontal face >= 64 px is found; its Platt-calibrated P(FAKE) joins the same max rule. A failure
+    # here must never break the scan, so it just means "check not applied".
+    face_swap_probability, face_swap_face_px = _face_swap_check(path)
+    ensemble_fake_probability = fake_probability
+    if face_swap_probability is not None:
+        fake_probability = max(fake_probability, face_swap_probability)
     real_probability = 1 - fake_probability
 
     # Verdict banding: +-0.2 margin around FAKE_THRESHOLD, same convention
@@ -110,7 +124,12 @@ async def run_image_detection(
     # Post-hoc temperature-scaling calibration (additive, supplementary -- see app/services/calibration.py
     # and CLAUDE.md section 25). Calibrates the underlying P(FAKE), then re-derives the two-sided confidence
     # the same way confidence_score itself is derived above, so the two numbers stay on the same convention.
-    calibrated_fake = calibrate(fake_probability, "image")
+    # When the face check drives the score it is already on a calibrated scale; the temperature fit belongs to the
+    # whole-image ensemble only.
+    if face_swap_probability is not None and face_swap_probability > ensemble_fake_probability:
+        calibrated_fake = face_swap_probability
+    else:
+        calibrated_fake = calibrate(ensemble_fake_probability, "image")
     calibrated_confidence = max(calibrated_fake, 1 - calibrated_fake) if calibrated_fake is not None else None
 
     elapsed_ms = (
@@ -125,7 +144,13 @@ async def run_image_detection(
         confidence_score=confidence_score,
         calibrated_confidence=calibrated_confidence,
         verdict=verdict,
-        model_used="ConvNeXt-Tiny + CLIP ViT-B/16 (ensemble)",
+        model_used=(
+            "ConvNeXt-Tiny + CLIP ViT-B/16 (ensemble)"
+            if face_swap_probability is None
+            else "ConvNeXt-Tiny + CLIP ViT-B/16 (ensemble) + face-swap check ("
+            + ("photo model, round 2" if face_swap.checkpoint_path() else "Video Model v1 round 4")
+            + ")"
+        ),
         processing_time_ms=elapsed_ms,
     )
 
@@ -144,12 +169,29 @@ async def run_image_detection(
             real_probability=real_probability,
             convnext_fake_probability=convnext_fake_probability,
             clip_fake_probability=clip_fake_probability,
+            face_swap_fake_probability=face_swap_probability,
+            face_swap_face_px=face_swap_face_px,
         )
     )
 
     await db.flush()
 
     return result_id
+
+
+def _face_swap_check(path: str) -> tuple[float | None, int | None]:
+    """(calibrated P(FAKE), face width px) or (None, None) when no usable face or the check is unavailable."""
+    try:
+        score = face_swap.score_image(path)
+    except Exception:  # missing checkpoint, unreadable frame, ... -> the rest of the scan still stands
+        logger.warning("face-swap check skipped", exc_info=True)
+        return None, None
+    if score is None:
+        return None, None
+    p = calibrate(1.0 / (1.0 + math.exp(-score.logit)), face_swap.calibration_key())
+    if p is None:  # no calibration configured -> do not guess
+        return None, None
+    return p, score.face_px
 
 
 def _verdict(fake_probability: float) -> str:

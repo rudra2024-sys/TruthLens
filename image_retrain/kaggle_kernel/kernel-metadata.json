@@ -1,0 +1,22 @@
+{
+  "id": "maninijaiswal/truthlens-image-r1",
+  "title": "truthlens-image-r1",
+  "code_file": "train_image_r1.py",
+  "language": "python",
+  "kernel_type": "script",
+  "is_private": true,
+  "enable_gpu": false,
+  "enable_internet": true,
+  "dataset_sources": [
+    "maninijaiswal/truthlens-image-ft-inputs",
+    "cartografia/unbiased-tiny-genimage",
+    "hiddenplant/sut-project",
+    "ajaysonicu/deepfakefusion-399k-realfake-faces",
+    "birdy654/cifake-real-and-ai-generated-synthetic-images",
+    "alessandrasala79/ai-vs-human-generated-dataset",
+    "xhlulu/140k-real-and-fake-faces",
+    "ayushmandatta1/deepdetect-2025"
+  ],
+  "competition_sources": [],
+  "kernel_sources": []
+}

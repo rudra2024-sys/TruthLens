@@ -1,0 +1,17 @@
+{
+  "id": "maninijaiswal/truthlens-photo-swap-r1",
+  "title": "truthlens-photo-swap-r1",
+  "code_file": "TruthLens_Photo_Swap_r1.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_internet": true,
+  "dataset_sources": [
+    "maninijaiswal/truthlens-video-ft-inputs"
+  ],
+  "competition_sources": [],
+  "kernel_sources": [
+    "maninijaiswal/truthlens-video-finetune-v2"
+  ]
+}

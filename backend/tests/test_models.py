@@ -80,8 +80,17 @@ def test_ensemble_probability_is_the_max_of_the_two_models(client, auth, upload,
     uid = upload(auth, sample.read_bytes(), sample.name, "image/png")
     body = client.post(f"/api/v1/detect/{uid}", headers=auth).json()
     a = body["image_analysis"]
-    assert a["fake_probability"] == pytest.approx(max(a["convnext_fake_probability"], a["clip_fake_probability"]))
-    assert body["model_used"] == "ConvNeXt-Tiny + CLIP ViT-B/16 (ensemble)"
+    # Since the face-swap check (CLAUDE.md section 28) the stored score is the max over the two image models and,
+    # when a face >= 64 px was found, the calibrated face-swap probability.
+    expected = max(a["convnext_fake_probability"], a["clip_fake_probability"], a.get("face_swap_fake_probability") or 0.0)
+    assert a["fake_probability"] == pytest.approx(expected)
+    base = "ConvNeXt-Tiny + CLIP ViT-B/16 (ensemble)"
+    if a.get("face_swap_fake_probability") is None:
+        assert body["model_used"] == base
+    else:
+        from app.services.image import face_swap
+        which = "photo model, round 2" if face_swap.checkpoint_path() else "Video Model v1 round 4"
+        assert body["model_used"] == base + f" + face-swap check ({which})"
 
 
 def test_real_image_detection_populates_calibrated_confidence(client, auth, upload, convnext, clip, monkeypatch):

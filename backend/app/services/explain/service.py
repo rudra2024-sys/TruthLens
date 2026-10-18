@@ -56,9 +56,16 @@ def _explain_image(upload: Upload, result: DetectionResult) -> Explanation:
     cl = getattr(ia, "clip_fake_probability", None)
     driver = None
     note = DISCLAIMER
+    fs = getattr(ia, "face_swap_fake_probability", None)
     if cn is not None and cl is not None:
         driver = "CLIP" if cl > cn else "ConvNeXt-Tiny"
-        if driver == "CLIP":
+        if fs is not None and fs > max(cn, cl):
+            driver = "Face-swap check"
+            note += (
+                " This verdict was driven by the face-swap check (Video Model v1 on the detected face crop), "
+                "which has no heatmap here; the map above shows what ConvNeXt-Tiny alone attended to."
+            )
+        elif driver == "CLIP":
             note += (
                 " This verdict was driven by the CLIP second-opinion model, which has no spatial heatmap; "
                 "the map above shows what ConvNeXt-Tiny alone attended to."

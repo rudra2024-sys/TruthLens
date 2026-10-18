@@ -12,5 +12,21 @@
     "n": 926,
     "min_short_side_px": 360,
     "fit_on": "Video Model v1 round 4 (video_v1_round4.pt) mean logits, round-4 validation split, short side >= 360 (video_retrain/work/kaggle_output_v8/run_r4/val_scores.csv, fitted 2026-10-12)"
+  },
+  "image_face_swap": {
+    "method": "platt",
+    "a": 0.9467,
+    "b": 0.1474,
+    "n": 961,
+    "min_face_px": 64,
+    "fit_on": "Video Model v1 round 4 single-frame logits of Haar-detected faces (JPEG q95 stills): FaceForensics++/Celeb-DF/DFDC held-out video frames + celeba/140k-faces/UTKFace real photos, class-balanced (image_retrain/ scratch face_eval, 2026-10-16). Verdict band as image: FAKE>=0.7, REAL<=0.3."
+  },
+  "image_face_swap_r2": {
+    "method": "platt",
+    "a": 1.0398,
+    "b": 0.3159,
+    "n": 1062,
+    "min_face_px": 64,
+    "fit_on": "Image face-swap check, photo model round 2 (50/50 weight blend of Video Model v1 round 4 and a fine-tune on RWFS + DeepGuard pairs + 1,198 round-4 video-replay clips (celebdf/dfd/dfdc/fakeavceleb/ffpp/rtfs)). Single-frame logits of Haar-detected faces on held-out FaceForensics++/Celeb-DF/DFDC frames + celeba/140k-faces/UTKFace real photos, class-balanced; none used in training. Used only when IMAGE_FACE_SWAP_CHECKPOINT is set. Fitted 2026-10-17."
   }
 }

@@ -34,6 +34,8 @@ _LIGHT_MIGRATIONS = [
     # Added to ImageAnalysis with the CLIP ensemble, before this list existed -- DBs created earlier lack them.
     "ALTER TABLE image_analysis ADD COLUMN convnext_fake_probability FLOAT",
     "ALTER TABLE image_analysis ADD COLUMN clip_fake_probability FLOAT",
+    "ALTER TABLE image_analysis ADD COLUMN face_swap_fake_probability FLOAT",
+    "ALTER TABLE image_analysis ADD COLUMN face_swap_face_px INTEGER",
     "ALTER TABLE audio_analysis ADD COLUMN duration_s FLOAT",
     "ALTER TABLE audio_analysis ADD COLUMN windows_analyzed INTEGER",
     "ALTER TABLE video_analysis ADD COLUMN frames_with_face INTEGER",

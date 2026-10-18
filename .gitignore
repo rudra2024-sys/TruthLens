@@ -107,3 +107,9 @@ testing/
 
 # Video retraining working data (scores, held-out test videos, crops, Kaggle outputs) - local only
 video_retrain/work/
+
+# Image retraining working data (dataset indexes, scores, Kaggle outputs) - local only
+image_retrain/work/
+image_retrain/manifest_r1.csv
+image_retrain/local_manifest.csv
+image_retrain/local_manifest_extra.csv

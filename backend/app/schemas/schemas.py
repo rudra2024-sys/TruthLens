@@ -20,6 +20,8 @@ class ImageAnalysisOut(BaseModel):
     real_probability: Optional[float] = None
     convnext_fake_probability: Optional[float] = None
     clip_fake_probability: Optional[float] = None
+    face_swap_fake_probability: Optional[float] = None
+    face_swap_face_px: Optional[int] = None
 
     class Config:
         from_attributes = True

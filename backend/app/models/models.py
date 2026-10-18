@@ -156,6 +156,17 @@ class ImageAnalysis(Base):
         nullable=True
     )
 
+    # Face-swap check (Video Model v1 round 4 on the detected face, CLAUDE.md section 28): calibrated P(FAKE) and
+    # the detected face width in px. NULL when no face >= 64 px was found (check not applicable) and for older rows.
+    face_swap_fake_probability: Mapped[float | None] = mapped_column(
+        Float,
+        nullable=True
+    )
+    face_swap_face_px: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True
+    )
+
     result: Mapped["DetectionResult"] = relationship(
         "DetectionResult",
         back_populates="image_analysis"

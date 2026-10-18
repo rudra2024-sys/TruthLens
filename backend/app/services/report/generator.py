@@ -386,6 +386,23 @@ def generate_pdf_report(upload: Upload, result: DetectionResult) -> str:
                 )
             )
 
+        if getattr(image_analysis, "face_swap_fake_probability", None) is not None:
+            elements.append(
+                Paragraph(
+                    f"Face-Swap Check (calibrated FAKE probability, face {image_analysis.face_swap_face_px} px wide): "
+                    f"{image_analysis.face_swap_fake_probability * 100:.1f}%",
+                    styles["Normal"],
+                )
+            )
+            elements.append(
+                Paragraph(
+                    "The face-swap check scores the detected face alone with the video model. It was measured on "
+                    "frames from research deepfake datasets, not on photos from face-swap apps; a low score does "
+                    "not prove a face is genuine.",
+                    styles["Normal"],
+                )
+            )
+
         # Legacy heuristic pipeline
         if image_analysis.efficientnet_score is not None:
             elements.append(

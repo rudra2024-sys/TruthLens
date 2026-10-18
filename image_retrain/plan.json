@@ -1,0 +1,45 @@
+{
+  "rehearsal": [
+    {
+      "ref": "birdy654/cifake-real-and-ai-generated-synthetic-images",
+      "note": "CIFAKE, 32px native"
+    },
+    {
+      "ref": "alessandrasala79/ai-vs-human-generated-dataset"
+    },
+    {
+      "ref": "xhlulu/140k-real-and-fake-faces"
+    },
+    {
+      "ref": "ayushmandatta1/deepdetect-2025",
+      "note": "JPEG-history shortcut, cap its weight"
+    },
+    {
+      "ref": "portrait_app_fake_source_v1.zip",
+      "note": "257 fakes, local only, keep in training so CLIP/ConvNeXt retain it"
+    }
+  ],
+  "eval_only_never_trained": [
+    {
+      "ref": "sanketghadge1/openfake-data-20k-img",
+      "note": "licence unknown, keep local"
+    },
+    {
+      "ref": "renhuang8/genimage-subset-detection",
+      "note": "same generators as genimage, different images"
+    },
+    {
+      "ref": "backend/test_data/blind_spot_images/chatgpt_everyday",
+      "note": "8 GPT-4o-class images, the only such data we have"
+    },
+    {
+      "ref": "testing/deepfake/images",
+      "note": "3 FakeAVCeleb face-swap stills; too few, extract more from FakeAVCeleb videos"
+    },
+    {
+      "ref": "UTKFace real faces",
+      "note": "real-photo specificity / fairness"
+    }
+  ],
+  "held_out_generator": "ADM"
+}

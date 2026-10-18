@@ -1163,3 +1163,80 @@ architecture and preprocessing; new weights + a new Platt calibration fitted for
   rotation/consensus/wide-pad experiments (sections 19-22) - their numbers are epoch-11 numbers.
 - Tests: `test_video_calibrated_verdict.py` constants updated to the new fit (one test's example scores changed
   because round 4's gentler slope correctly leaves raw 0.60 UNCERTAIN). Full suite: 495 passed, 18 skipped.
+
+---
+
+## 28. Face-swap check in the image pipeline (production) - 2026-10-16
+
+Approved by the user ("improve deepfake detection ... do whatever feels best"). No retraining and no new weights: the
+whole-image ConvNeXt + CLIP ensemble is near chance on face swaps, so a still photo that contains a face is now also
+scored by the **deployed Video Model v1 round 4 checkpoint** on the Haar face crop (one frame instead of sixteen).
+
+- **Measured first (356 held-out videos, 4 frames each, JPEG q95 stills, none used to train the round-4 model):** AUC
+  deployed image ensemble 0.61, image round-3 candidate 0.54, video r4 on the face crop **0.95** (per set 0.89-0.99;
+  `my_videos` 0.78 on 15 videos). At a 5% false-alarm budget the face model catches 78% of fake frames vs 12% / 6%.
+- **Image retrain round 2/3 (`image_retrain/`) is NOT deployed.** Round 3 beats the deployed image model on AI-generated
+  images (pooled acc 79.6% -> 88.0%, ADM 17% -> 52%) but only with a FAKE threshold ~0.76 + recalibration, and it does
+  nothing for face swaps; a 13-variation test (JPEG/blur/noise/crop/WhatsApp...) confirmed both. Still staged, awaiting
+  a decision.
+- **Where:** `services/image/face_swap.py` (production module; applies only if a frontal Haar face >= 64 px wide is
+  found, otherwise `None` - the centre-crop fallback is not a face check), `services/image/detector.py::
+  _face_swap_check` (any failure -> check not applied, scan still succeeds), `core/calibration.json` "image_face_swap"
+  (Platt a=0.9467, b=0.1474, fit on FF++/Celeb-DF/DFDC frames + celeba/140k/UTKFace reals, class-balanced, n=961).
+  Rule: `fake_probability = max(ConvNeXt, CLIP, face_swap_calibrated)`, then the unchanged FAKE >= 0.7 / REAL <= 0.3 band.
+  New nullable `image_analysis.face_swap_fake_probability` / `face_swap_face_px` (light migration), API field, PDF lines
+  (with a "measured on research datasets, not face-swap apps" caveat), `ReportDetail.jsx` row, explain note +
+  `verdict_driver = "Face-swap check"`, `model_used` suffix only when the check ran. `calibrated_confidence` uses the
+  face probability when it drove the score. Rollback: delete the `image_face_swap` key from `calibration.json` (the check
+  then reports "not applied") or revert `detector.py`.
+- **Held-out numbers (frames not used to fit, p >= 0.7):** 81.5% of fake frames FAKE, 2.2% of real frames wrongly FAKE
+  (rtfs / FakeAVCeleb / my_videos); across all real-face sets the single-frame false-FAKE rate is ~5.5% (up to 9-10% on
+  FaceForensics/DFDC/AVH reals), fake recall ~71%. Stricter option if false alarms matter more: logit threshold 1.25 ->
+  3.8% false-FAKE, 62% recall (not applied).
+- **Live API test (scratch server, real HTTP, 2026-10-16):** 24 full deepfake video frames: 16 FAKE / 5 UNCERTAIN / 3 REAL;
+  24 real video frames: 5 FAKE / 2 UNCERTAIN / 17 REAL (4 of the 5 wrong FAKEs driven by the face check; two of those
+  datasets are in the Platt fit set); 30 real photos: 3 FAKE / 6 UNCERTAIN / 21 REAL; face-swap crops 4/12 FAKE (+4
+  UNCERTAIN); AI-generated unchanged (ensemble-driven). Small samples - treat as a smoke test, not a benchmark.
+- **Caveats (rule 5):** tested on frames from research deepfake datasets, **not on photos from consumer face-swap apps**
+  (no such photos available yet); face-swap crops of 112 px are only partly detected; faces smaller than 64 px or not
+  frontal skip the check; a REAL/UNCERTAIN result is not proof a face is genuine.
+- Tests: `backend/tests/test_image_face_swap.py` (6) + `test_models.py` ensemble test updated for the new max. Full suite
+  510 passed, 18 skipped; frontend build OK.
+
+- **Update (same day, face detector + consumer-style swaps):** `face_swap.py` now tries Haar first (the model was trained
+  on Haar-style crops) and uses MTCNN (facenet-pytorch, already a dependency) only when Haar finds no face >= 64 px. Measured
+  on 1,927 held-out inputs: faces found 90% -> 99%, fakes caught 66.3% -> 68.5%, real wrongly flagged 4.8% -> 5.4% (MTCNN
+  alone was worse: 61.0% caught - crops differ from training). On 60 UTKFace photos Haar alone found 26, with the fallback 60.
+- **First consumer-style swap test** (`image_retrain/gen_photo_swaps.py`, inswapper_128, 80 celeba photos each as untouched
+  original + swapped copy, JPEG q95): face check AUC 0.859 (image models only 0.659); swaps called FAKE 70% vs 26% with the
+  image models alone, **but 15% of the untouched originals are also called FAKE** (faces only ~100 px wide; the swapped copy
+  scored above its own original 89% of the time). So the check helps on app-style swaps but over-flags small-face photos.
+  Next step is a dedicated photo model: `image_retrain/PHOTO_SWAP_PLAN.md` (prepared, not started).
+- **Real-app test (2026-10-16, RWFS: 500 swaps from 8 online face-swap apps + 500 real photos, Scam-AI/RWFS):** the shipped check
+  is weak here - swaps called FAKE 38% (UNCERTAIN 28%, REAL 33%), real photos wrongly FAKE 16%, combined AUC 0.672 (face check
+  alone 0.617, image models alone 0.675). On the paired inswapper set (Sowaiba01/Deepfake, 250 pairs) it is much better
+  (swaps FAKE 91%, reals 8%, face-check AUC 0.970). So section 28's numbers on research-dataset video frames and inswapper stills
+  do NOT carry over to real consumer apps. Retrain notebook (`image_retrain/kaggle_photo_r1/`, Colab variant) now trains on the
+  downloaded paired set and tests on RWFS; it does not generate swaps (Colab's rules). Not run yet.
+
+- **Update (2026-10-17, photo face-swap model round 2 - STAGED, NOT the default):** the shipped check scored near chance on real
+  consumer apps (RWFS AUC 0.62). A Kaggle fine-tune on inswapper pairs only (photo_r1) did NOT fix it (RWFS AUC 0.58: it learned the
+  inswapper fingerprint). What did work in a leave-one-group-out test on RWFS (swaps grouped by FILE-NAME STYLE, since RWFS has no app
+  labels; train on 3 groups + 400 DeepGuard pairs + 798 round-4 video replay frames, test on the 4th): held-out-group AUC 0.59-0.65 ->
+  0.87-0.92, swaps caught at 5% false alarms 11-19% -> 57-70%. Caveats: groups are a proxy for apps, RWFS likely repeats the same face
+  pairs across apps (could inflate), 37-176 swaps per group. A photo-only fine-tune forgot video (research-frame AUC 0.935 -> 0.855,
+  reals wrongly FAKE 5.5% -> 12%); video replay fixed false alarms but FaceForensics/RTFS recall still fell (their replay frames could
+  not be downloaded - Kaggle ListKernelSessionOutput returned 429 all day). Staged candidate = 50/50 weight blend of round 4 and the
+  fine-tune (`image_retrain/staging/face_swap_photo_r2_blend50.pt`, sha256 edc59c16...): research-frame AUC 0.931 (was 0.935), real
+  frames/photos wrongly flagged 4.9% (was 5.5%), real-app held-out AUC 0.77-0.83 (swaps caught at 5% false alarms 34-47% vs 11-19%), but at a
+  fixed logit 0.74 RTFS caught 88% -> 81%, FaceForensics 53% -> 39% (FF++ AUC 0.856 -> 0.825). Re-run with 1,198 replay clips after the missing
+  RTFS/FF++ frames were fetched via a CPU helper notebook (`image_retrain/kaggle_replay_zip2/`); the earlier blend (sha cac6c3c8) was superseded.
+  The full (non-blended) fine-tune has the best real-app AUC (0.86-0.92) but hurts FF++ more (AUC 0.758), so the blend is staged.
+  Opt-in only: `IMAGE_FACE_SWAP_CHECKPOINT=<path>` makes the image check load that file and use the `image_face_swap_r2` Platt entry
+  (a=1.0398, b=0.3159, n=1062, fit on frames/photos not used in training); `model_used` then says "photo model, round 2". Unset = the
+  video round-4 weights as before. The video module never reads this variable and the video checkpoint is untouched (sha d57cd03c...).
+  Live API smoke test (same 131 inputs, default vs r2): verdicts nearly identical; real photos 3 -> 4 wrongly FAKE (n=30). No real-app
+  swaps in that set, so the main benefit is NOT visible there. Script: `image_retrain/rwfs_group_cv.py`. **SWITCHED ON by the user's explicit OK, 2026-10-17:** the checkpoint now lives at
+  `backend/checkpoints/image_face_swap/face_swap_photo_r2_blend50.pt` (gitignored; in `models/CHECKSUMS.sha256`) and the image check uses it
+  automatically when that file exists (`IMAGE_FACE_SWAP_CHECKPOINT` overrides; set it to an empty string, or delete the file, to roll back
+  to the video round-4 weights and the `image_face_swap` calibration). Note the staged-path env var described above is now optional. Full suite 513 passed, 18 skipped.
