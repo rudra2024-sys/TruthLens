@@ -20,6 +20,15 @@ from __future__ import annotations
 HEADER_BYTES = 64  # more than enough for every signature below, including the ftyp box at offset 4-8
 
 
+def _is_heic(head: bytes) -> bool:
+    """HEIC/HEIF (Apple's default photo format since iOS 11) - also an ISO-BMFF `ftyp` box like
+    MP4/MOV, but with a HEIF-specific major brand rather than a video/audio one, so it needs its
+    own check distinct from _is_isobmff (which is scoped to the video/audio brands below)."""
+    if head[4:8] != b"ftyp":
+        return False
+    return head[8:12] in (b"heic", b"heix", b"heim", b"heis", b"hevc", b"hevx", b"hevm", b"hevs", b"mif1", b"msf1")
+
+
 def _is_image(head: bytes) -> bool:
     if head.startswith(b"\xff\xd8\xff"):                                   # JPEG
         return True
@@ -27,7 +36,7 @@ def _is_image(head: bytes) -> bool:
         return True
     if head[:4] == b"RIFF" and head[8:12] == b"WEBP":                      # WebP
         return True
-    return False
+    return _is_heic(head)
 
 
 def _is_isobmff(head: bytes) -> bool:

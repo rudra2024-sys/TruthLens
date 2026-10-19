@@ -125,7 +125,7 @@ def test_fetch_replaces_a_corrupted_local_copy(tmp_path):
 def test_the_recorded_checksum_list_is_well_formed():
     f = load_fetch_module()
     sums = f.read_checksums()
-    assert len(sums) == 3
+    assert len(sums) == 4
     for rel, digest in sums.items():
         assert len(digest) == 64 and int(digest, 16) >= 0 and rel.endswith((".pth", ".pt"))
 

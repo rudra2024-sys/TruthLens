@@ -20,7 +20,7 @@ import ExplanationPanel from './ExplanationPanel'
 import ProvenancePanel from './ProvenancePanel'
 import FeedbackPanel from './FeedbackPanel'
 import LowResolutionNote from './LowResolutionNote'
-import { getVerdictInfo } from '../lib/verdict'
+import { getDisplayVerdictInfo, getDisplayVerdict } from '../lib/verdict'
 
 /**
  * The forensic intake desk — the primary instrument of the product. Shared
@@ -118,6 +118,7 @@ export default function UploadFlow({ compact = false, showRecent = false, headin
   const [analyzing, setAnalyzing] = useState(false)
   const [detectDone, setDetectDone] = useState(false)
   const [result, setResult] = useState(null)
+  const [provenance, setProvenance] = useState(null)
   const [error, setError] = useState(null)
   const [recentFiles, setRecentFiles] = useState([])
   const [inspectOpen, setInspectOpen] = useState(false)
@@ -212,9 +213,11 @@ export default function UploadFlow({ compact = false, showRecent = false, headin
     }
   }
 
-  const reset = () => { setFile(null); setResult(null); setError(null); setProgress(0); setDetectDone(false); setInspectOpen(false); setJob(null) }
+  const reset = () => { setFile(null); setResult(null); setProvenance(null); setError(null); setProgress(0); setDetectDone(false); setInspectOpen(false); setJob(null) }
 
-  const info = result ? getVerdictInfo(result.verdict || result.label) : null
+  const rawVerdict = result ? (result.verdict || result.label) : null
+  const displayVerdict = getDisplayVerdict(rawVerdict, provenance)
+  const info = result ? getDisplayVerdictInfo(rawVerdict, provenance) : null
 
   const radius = compact ? 'rounded-[4px]' : 'rounded-[6px]'
   const minHeight = compact ? 'min-h-[480px]' : 'min-h-[440px] md:min-h-[500px]'
@@ -327,11 +330,11 @@ export default function UploadFlow({ compact = false, showRecent = false, headin
           </div>
 
           <div className="flex flex-col md:flex-row items-center gap-10 mb-10">
-            <VerdictSeal verdict={result.verdict || result.label} size={sealSize} />
+            <VerdictSeal verdict={displayVerdict} size={sealSize} />
             <div className="flex-1 text-center md:text-left">
               <h3 className="font-serif text-[26px] md:text-[30px] text-bone mb-2 break-all">{file?.name}</h3>
-              <p className={`text-[14px] mb-3 ${info.textClass}`}>{info.caption}</p>
-              <VerdictBadge verdict={result.verdict || result.label} />
+              <p className={`mb-3 ${info.textClass} ${info.key === 'manipulated' ? 'text-[18px] font-bold' : 'text-[14px]'}`}>{info.caption}</p>
+              <VerdictBadge verdict={displayVerdict} />
             </div>
             <ConfidenceGauge value={result.confidence_score} accent={info.accent} size={gaugeSize} />
           </div>
@@ -387,7 +390,7 @@ export default function UploadFlow({ compact = false, showRecent = false, headin
 
           {/* Provenance (image/video): C2PA credentials + embedded metadata. Supplementary to the verdict;
               a conflict with the model verdict is shown up front. Cheap, so fetched automatically. */}
-          <ProvenancePanel uploadId={result.uploadId} mediaType={kindOf(file?.type, file?.name)} className="mt-8" />
+          <ProvenancePanel uploadId={result.uploadId} mediaType={kindOf(file?.type, file?.name)} className="mt-8" onLoaded={setProvenance} />
 
           {/* Explainability (image/video): fetched only when opened. */}
           <ExplanationPanel uploadId={result.uploadId} mediaType={kindOf(file?.type, file?.name)} className="mt-8" />

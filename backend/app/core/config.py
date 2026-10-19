@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     REPORT_DIR: str = "reports"
     MAX_FILE_SIZE_MB: int = 100
 
-    ALLOWED_IMAGE_TYPES: list = ["image/jpeg", "image/png", "image/webp"]
+    ALLOWED_IMAGE_TYPES: list = ["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"]
     ALLOWED_VIDEO_TYPES: list = ["video/mp4", "video/avi", "video/quicktime", "video/webm"]
     ALLOWED_AUDIO_TYPES: list = ["audio/wav", "audio/mpeg", "audio/flac", "audio/x-wav", "audio/mp3",
                                   "audio/mp4", "audio/x-m4a", "audio/m4a",

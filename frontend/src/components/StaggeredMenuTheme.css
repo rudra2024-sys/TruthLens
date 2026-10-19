@@ -47,6 +47,47 @@
   font-family: 'Playfair Display', Georgia, serif;
 }
 
+/* TruthLens addition: the vendored CSS ships .sm-panel-item at 3.5rem with no responsive
+   scaling at all -- oversized for a text nav menu at every breakpoint. Reduced here rather
+   than in the byte-for-byte StaggeredMenu.css file, same scoped-override pattern as the rest
+   of this stylesheet. Letter-spacing is tightened less too -- the original -2px was tuned for
+   56px glyphs and reads as cramped at this smaller size. (First pass landed at 1.85rem/1.4rem,
+   which read as too small -- settled here instead.) */
+.staggered-menu-wrapper .sm-panel-item {
+  font-size: 2.75rem;
+  letter-spacing: -1px;
+}
+
+@media (max-width: 640px) {
+  .staggered-menu-wrapper .sm-panel-item {
+    font-size: 2rem;
+  }
+}
+
+/* TruthLens addition: the item-numbering (01, 02, ...) was removed entirely (Navigation.jsx now
+   passes displayItemNumbering={false}), so the counter-positioning overrides tried earlier are
+   gone too -- nothing in this file still targets .sm-panel-item::after.
+   What's left: "ProctorLens" (one word, no space to wrap on) doesn't fit the panel's width at
+   this font-size, so it was being clipped/ellipsized. Instead of shrinking the text or hiding
+   part of it, each item is its own horizontally-scrollable region -- a short label just has
+   nothing to scroll, a too-wide one (ProctorLens) can be swiped/dragged into view instead of
+   losing letters. Scrollbar hidden since this is a swipe gesture, not a visible scroll track. */
+.staggered-menu-wrapper .sm-panel-item {
+  display: block;
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.staggered-menu-wrapper .sm-panel-item::-webkit-scrollbar {
+  display: none;
+}
+
+.staggered-menu-wrapper .sm-panel-itemLabel {
+  white-space: nowrap;
+}
+
 /* The stock CSS inverts the logo below 1024px on the assumption the mobile
    panel is light. TruthLens's panel is dark at every breakpoint (see
    .staggered-menu-panel override above), so cancel that invert — same

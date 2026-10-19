@@ -7,17 +7,17 @@
  * what the <input accept> attribute and the displayed format chips both show.
  */
 export const ACCEPTED_MIME_TYPES = [
-  'image/jpeg', 'image/png', 'image/webp',
+  'image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif',
   'video/mp4', 'video/avi', 'video/quicktime', 'video/webm',
   'audio/wav', 'audio/mpeg', 'audio/flac', 'audio/x-wav', 'audio/mp3',
   'audio/mp4', 'audio/x-m4a', 'audio/m4a',
   'audio/ogg', 'audio/opus',
 ]
 
-// Browsers/OSes don't all map .opus to a MIME type, so the picker also lists these by extension
-// (the backend falls back to the extension the same way, see upload.py::resolve_content_type).
-export const ACCEPTED_EXTENSIONS = ['.opus', '.ogg', '.oga']
+// Browsers/OSes don't all map .opus/.heic/.heif to a MIME type, so the picker also lists these by
+// extension (the backend falls back to the extension the same way, see upload.py::resolve_content_type).
+export const ACCEPTED_EXTENSIONS = ['.opus', '.ogg', '.oga', '.heic', '.heif']
 
 export const ACCEPTED_INPUT_ACCEPT = [...ACCEPTED_MIME_TYPES, ...ACCEPTED_EXTENSIONS].join(',')
 
-export const ACCEPTED_FORMAT_CHIPS = ['JPG', 'PNG', 'WEBP', 'MP4', 'MOV', 'AVI', 'WEBM', 'WAV', 'MP3', 'FLAC', 'M4A', 'OPUS']
+export const ACCEPTED_FORMAT_CHIPS = ['JPG', 'PNG', 'WEBP', 'HEIC', 'MP4', 'MOV', 'AVI', 'WEBM', 'WAV', 'MP3', 'FLAC', 'M4A', 'OPUS']

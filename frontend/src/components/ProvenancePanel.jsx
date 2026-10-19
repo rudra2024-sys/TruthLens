@@ -33,20 +33,27 @@ const yn = (v) => (v === true ? 'yes' : v === false ? 'no' : null)
  * verdict — it never changes it. Fetched automatically (cheap: no model runs). A conflict between the models'
  * verdict and an embedded AI declaration is shown up front; everything else sits behind a disclosure. Renders
  * nothing while loading or when the backend has nothing to say, so it can never block the result screen.
+ *
+ * `onLoaded` (optional) is handed the raw fetched data (or null) so a parent showing its own verdict headline
+ * nearby — UploadFlow.jsx's result card, ReportDetail.jsx — can check `data.conflict_note` and avoid
+ * contradicting it (see lib/verdict.js::getDisplayVerdictInfo). This component's own rendering is unaffected
+ * either way.
  */
-export default function ProvenancePanel({ uploadId, mediaType, className = '' }) {
+export default function ProvenancePanel({ uploadId, mediaType, className = '', onLoaded }) {
   const [data, setData] = useState(null)
   const [open, setOpen] = useState(false)
   const eligible = mediaType === 'image' || mediaType === 'video' || mediaType === 'audio'
 
   useEffect(() => {
-    if (!eligible || !uploadId) return undefined
+    if (!eligible || !uploadId) { onLoaded?.(null); return undefined }
     let cancelled = false
     setData(null)
+    onLoaded?.(null)
     getProvenance(uploadId)
-      .then((res) => { if (!cancelled) setData(res.data) })
-      .catch(() => { if (!cancelled) setData(null) }) // supplementary: fail silently rather than disturb the verdict view
+      .then((res) => { if (!cancelled) { setData(res.data); onLoaded?.(res.data) } })
+      .catch(() => { if (!cancelled) { setData(null); onLoaded?.(null) } }) // supplementary: fail silently rather than disturb the verdict view
     return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- onLoaded is expected to be a stable setState
   }, [uploadId, eligible])
 
   if (!eligible || !data || !data.available) return null
@@ -59,11 +66,11 @@ export default function ProvenancePanel({ uploadId, mediaType, className = '' })
   return (
     <div className={className}>
       {data.conflict_note && (
-        <div role="note" className="flex gap-3 border border-verdictCaution/60 bg-verdictCaution/10 rounded-[4px] p-4 mb-4">
-          <AlertTriangle size={18} strokeWidth={1.75} className="text-verdictCaution shrink-0 mt-[2px]" aria-hidden="true" />
+        <div role="note" className="flex gap-3 border border-verdictDanger/60 bg-verdictDanger/10 rounded-[4px] p-4 mb-4">
+          <AlertTriangle size={20} strokeWidth={2} className="text-verdictDanger shrink-0 mt-[2px]" aria-hidden="true" />
           <div>
-            <p className="text-[13px] font-medium text-bone mb-1">Provenance conflicts with the detection verdict</p>
-            <p className="text-[13px] text-bone-dim">{data.conflict_note}</p>
+            <p className="text-[15px] font-bold text-verdictDanger mb-1">Provenance conflicts with the detection verdict</p>
+            <p className="text-[14px] font-bold text-verdictDanger">{data.conflict_note}</p>
           </div>
         </div>
       )}
@@ -79,7 +86,7 @@ export default function ProvenancePanel({ uploadId, mediaType, className = '' })
           <span className="tl-hud-label !text-bone group-hover:!text-brass transition-colors duration-300">
             {open ? 'Hide Provenance' : 'Provenance & Metadata'}
           </span>
-          <span className={`text-[13px] ${declared ? 'text-verdictCaution' : 'text-bone-dim'}`}>{data.headline}</span>
+          <span className={declared ? 'text-[14px] font-bold text-verdictDanger' : 'text-[13px] text-bone-dim'}>{data.headline}</span>
         </span>
         <ChevronDown
           size={13}

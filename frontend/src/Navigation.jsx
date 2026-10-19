@@ -80,7 +80,7 @@ const Navigation = () => {
         position="right"
         items={items}
         displaySocials={false}
-        displayItemNumbering
+        displayItemNumbering={false}
         colors={['#1F2022', '#0B0C0D']}
         logoUrl="/truthlens-logo.svg"
         logoText="TruthLens"

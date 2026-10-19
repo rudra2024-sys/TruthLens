@@ -8,6 +8,7 @@ pydantic
 pydantic-settings
 aiofiles
 Pillow
+pillow-heif
 numpy
 reportlab
 torch==2.8.0+cpu

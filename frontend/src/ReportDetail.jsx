@@ -15,7 +15,7 @@ import ExplanationPanel from './components/ExplanationPanel'
 import ProvenancePanel from './components/ProvenancePanel'
 import FeedbackPanel from './components/FeedbackPanel'
 import LowResolutionNote from './components/LowResolutionNote'
-import { getVerdictInfo } from './lib/verdict'
+import { getDisplayVerdictInfo, getDisplayVerdict } from './lib/verdict'
 import { stationTag } from './lib/stations'
 
 /**
@@ -103,6 +103,7 @@ export default function ReportDetail() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [logOpen, setLogOpen] = useState(false)
+  const [provenance, setProvenance] = useState(null)
 
   useEffect(() => {
     let cancelled = false
@@ -141,7 +142,8 @@ export default function ReportDetail() {
     )
   }
 
-  const info = getVerdictInfo(result.verdict)
+  const displayVerdict = getDisplayVerdict(result.verdict, provenance)
+  const info = getDisplayVerdictInfo(result.verdict, provenance)
 
   return (
     <div className="min-h-screen bg-ground pt-[72px]">
@@ -172,11 +174,11 @@ export default function ReportDetail() {
 
             {/* Verdict + Confidence — the headline of the document */}
             <div className="flex flex-col sm:flex-row items-center gap-10 mb-12 pb-12 border-b border-line">
-              <VerdictSeal verdict={result.verdict} size={96} />
+              <VerdictSeal verdict={displayVerdict} size={96} />
               <div className="flex-1 text-center sm:text-left">
                 <p className="tl-hud-label mb-2">Verdict</p>
-                <h2 className={`font-serif text-[32px] md:text-[36px] mb-2 ${info.textClass}`}>{info.label}</h2>
-                <p className="text-[14px] text-bone-dim">{info.caption}</p>
+                <h2 className={`font-serif text-[32px] md:text-[36px] mb-2 ${info.textClass} ${info.key === 'manipulated' ? 'font-bold' : ''}`}>{info.label}</h2>
+                <p className={info.key === 'manipulated' ? `text-[16px] font-bold ${info.textClass}` : 'text-[14px] text-bone-dim'}>{info.caption}</p>
               </div>
               <div className="flex flex-col items-center gap-2">
                 <ConfidenceGauge value={result.confidence_score} accent={info.accent} size={128} />
@@ -248,6 +250,7 @@ export default function ReportDetail() {
             <ProvenancePanel
               uploadId={result.upload_id}
               mediaType={upload?.media_type || (result.image_analysis ? 'image' : result.video_analysis ? 'video' : null)}
+              onLoaded={setProvenance}
               className="mb-10"
             />
 

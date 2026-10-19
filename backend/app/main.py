@@ -1,5 +1,14 @@
 import logging
 
+from pillow_heif import register_heif_opener
+
+# Registers HEIC/HEIF as a Pillow-openable format globally (patches PIL.Image's format registry) --
+# every `Image.open()` call site across the image/video/identity pipelines, provenance checks and the
+# report generator gets HEIC support for free, with no per-call-site change. Must run before any of
+# those modules are imported (they are, transitively, via the route imports below), so this needs to
+# stay at the top of the app's single entry point.
+register_heif_opener()
+
 from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse

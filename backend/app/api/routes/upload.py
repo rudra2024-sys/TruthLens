@@ -16,7 +16,10 @@ ALL_ALLOWED = settings.ALLOWED_IMAGE_TYPES + settings.ALLOWED_VIDEO_TYPES + sett
 
 # Browsers don't agree on a MIME type for .opus files: some send audio/ogg or audio/opus, others send nothing
 # or application/octet-stream. For those, fall back to the extension; the byte sniff below still has to agree.
-_EXTENSION_FALLBACK = {".opus": "audio/opus", ".ogg": "audio/ogg", ".oga": "audio/ogg"}
+_EXTENSION_FALLBACK = {
+    ".opus": "audio/opus", ".ogg": "audio/ogg", ".oga": "audio/ogg",
+    ".heic": "image/heic", ".heif": "image/heif",
+}
 
 
 def resolve_content_type(content_type: str | None, filename: str | None) -> str | None:
@@ -40,7 +43,7 @@ async def upload_file(
 ):
     content_type = resolve_content_type(file.content_type, file.filename)
     if not content_type or content_type not in ALL_ALLOWED:
-        raise HTTPException(415, f"Unsupported file type '{file.content_type}'. Accepted: JPG/PNG/WebP, MP4/MOV/WebM, WAV/MP3/FLAC/M4A/Opus.")
+        raise HTTPException(415, f"Unsupported file type '{file.content_type}'. Accepted: JPG/PNG/WebP/HEIC, MP4/MOV/WebM, WAV/MP3/FLAC/M4A/Opus.")
 
     content = await file.read()
     size_kb = len(content) / 1024

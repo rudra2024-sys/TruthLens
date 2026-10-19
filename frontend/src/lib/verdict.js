@@ -53,3 +53,29 @@ export function getVerdictInfo(rawVerdict) {
     rgb: '209,101,101',
   }
 }
+
+/**
+ * The verdict actually shown on screen, accounting for a provenance conflict. The backend's
+ * `conflict_note` (see provenance/service.py::_assess) is ONLY ever set when the detection models
+ * said REAL/UNCERTAIN but the file itself carries strong direct AI evidence (an embedded AI
+ * declaration or a matched generator watermark) — so its presence alone is the exact trigger,
+ * nothing here re-derives that condition. Without this, the headline could read "No manipulation
+ * detected" directly above a note saying the file carries an AI watermark, which is the
+ * contradiction this fixes. The underlying stored verdict/confidence score are never touched —
+ * this only changes what's rendered.
+ */
+export function getDisplayVerdictInfo(rawVerdict, provenance) {
+  if (provenance?.conflict_note) {
+    return {
+      ...getVerdictInfo('FAKE'),
+      caption: 'Manipulation detected — conflicts with provenance evidence below',
+    }
+  }
+  return getVerdictInfo(rawVerdict)
+}
+
+/** The verdict string to pass to VerdictSeal/VerdictBadge so every piece of the UI agrees with
+ * getDisplayVerdictInfo's override instead of recomputing from the raw (pre-override) verdict. */
+export function getDisplayVerdict(rawVerdict, provenance) {
+  return provenance?.conflict_note ? 'FAKE' : rawVerdict
+}

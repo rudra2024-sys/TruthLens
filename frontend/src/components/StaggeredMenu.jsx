@@ -379,10 +379,15 @@ export const StaggeredMenu = ({
   // Adaptation: the brand mark (icon + wordmark) is a home link, same
   // close-then-navigate pattern as handleItemClick above, so it behaves
   // like any other SPA navigation item rather than a decorative image.
+  // Also scrolls to the top of the page -- navigate('/') alone is a no-op
+  // when already on the home page, so clicking the logo partway down a long
+  // page did nothing without this.
   const handleLogoClick = useCallback(
     () => {
       closeMenu();
       navigate('/');
+      const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+      window.scrollTo({ top: 0, behavior: reducedMotion ? 'auto' : 'smooth' });
     },
     [closeMenu, navigate]
   );
