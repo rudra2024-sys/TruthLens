@@ -14,9 +14,9 @@ Block types:
 TITLE = "TruthLens: An Evidence-Oriented Multimodal Platform for Detecting AI-Generated Media with Proctored Identity Verification"
 SHORT_TITLE = "TruthLens: An Evidence-Oriented Multimodal Platform for Detecting AI-Generated Media"
 
-# (Surname Firstname, roll number placeholder). Roll numbers are not in the repository: fill them in.
-STUDENTS = [("Jaiswal Manini", "Roll No. ______"), ("Shinde Rudrapratap", "Roll No. ______"),
-            ("Pethkar Atharva", "Roll No. ______"), ("Thakur Soham", "Roll No. ______")]
+# (Firstname Surname, roll number), in the order the team gave.
+STUDENTS = [("Manini Jaiswal", "23101C0060"), ("Rudrapratap Shinde", "23101B0015"),
+            ("Soham Thakur", "23101B0012"), ("Atharva Pethkar", "23101B0010")]
 GUIDE = "Prof. Dhanashree Tamhane"
 YEAR = "2025-2026"
 
