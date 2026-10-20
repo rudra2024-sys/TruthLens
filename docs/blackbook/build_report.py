@@ -512,6 +512,23 @@ for key in ORDER:
 
 render(getattr(RC, "APPENDICES", []))
 
+# --- the empty paragraph that closes each TOC field (Contents, List of Figures, List of Tables) must take no space:
+# when a list exactly fills its last page, that paragraph alone would otherwise spill onto a blank roman page
+for sdt in body.iter(qn("w:sdt")):
+    content = sdt.find(qn("w:sdtContent"))
+    if content is None or not len(content):
+        continue
+    last = content[-1]
+    texts = "".join(t.text or "" for t in last.iter(qn("w:t")))
+    if last.tag == qn("w:p") and not texts.strip() and last.find(".//" + qn("w:fldChar")) is not None:
+        old = last.find(qn("w:pPr"))
+        if old is not None:
+            last.remove(old)
+        last.insert(0, parse_xml(f'<w:pPr {nsdecls("w")}><w:spacing w:before="0" w:after="0" w:line="20" '
+                                 'w:lineRule="exact"/><w:rPr><w:sz w:val="2"/><w:szCs w:val="2"/></w:rPr></w:pPr>'))
+        for r in last.findall(qn("w:r")):
+            r.insert(0, parse_xml(f'<w:rPr {nsdecls("w")}><w:sz w:val="2"/><w:szCs w:val="2"/></w:rPr>'))
+
 # --- ask Word to refresh the TOC / list of figures / list of tables on open
 settings = doc.settings.element
 if settings.find(qn("w:updateFields")) is None:
