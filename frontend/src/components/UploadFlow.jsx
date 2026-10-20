@@ -20,6 +20,8 @@ import ExplanationPanel from './ExplanationPanel'
 import ProvenancePanel from './ProvenancePanel'
 import FeedbackPanel from './FeedbackPanel'
 import LowResolutionNote from './LowResolutionNote'
+import SmallImageNote from './SmallImageNote'
+import { getImageFakeHint } from '../lib/verdict'
 import { getDisplayVerdictInfo, getDisplayVerdict } from '../lib/verdict'
 
 /**
@@ -197,6 +199,7 @@ export default function UploadFlow({ compact = false, showRecent = false, headin
           ...detectRes.data, uploadId,
           filename: selectedFile.name,
           fileType: selectedFile.type,
+          imageWidth: uploadRes.data.width, imageHeight: uploadRes.data.height,
           date: new Date().toISOString(),
         }
         setResult(res)
@@ -332,14 +335,17 @@ export default function UploadFlow({ compact = false, showRecent = false, headin
           <div className="flex flex-col md:flex-row items-center gap-10 mb-10">
             <VerdictSeal verdict={displayVerdict} size={sealSize} />
             <div className="flex-1 text-center md:text-left">
-              <h3 className="font-serif text-[26px] md:text-[30px] text-bone mb-2 break-all">{file?.name}</h3>
-              <p className={`mb-3 ${info.textClass} ${info.key === 'manipulated' ? 'text-[18px] font-bold' : 'text-[14px]'}`}>{info.caption}</p>
+              <h3 title={file?.name} className="font-serif text-[26px] md:text-[30px] text-bone mb-2 break-words line-clamp-2">{file?.name}</h3>
+              <p className={`mb-1 ${info.textClass} ${info.key === 'manipulated' ? 'text-[18px] font-bold' : 'text-[14px]'}`}>{info.caption}</p>
+              {getImageFakeHint(result, info.key) && <p className="mb-3 text-[13px] text-bone-dim">{getImageFakeHint(result, info.key)}</p>}
+              {!getImageFakeHint(result, info.key) && <div className="mb-2" />}
               <VerdictBadge verdict={displayVerdict} />
             </div>
             <ConfidenceGauge value={result.confidence_score} accent={info.accent} size={gaugeSize} />
           </div>
 
           <LowResolutionNote analysis={result.video_analysis} className="mb-8" />
+          <SmallImageNote width={result.imageWidth} height={result.imageHeight} className="mb-8" />
 
           {/* Examination Controls — the case isn't over just because the
               verdict rendered: the specimen can still be inspected again,

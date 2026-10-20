@@ -10,6 +10,19 @@ from app.schemas.schemas import UploadOut
 from app.api.routes.auth import get_current_user
 from app.services.file_sniff import sniff_matches_declared_family
 
+def _with_image_size(upload: Upload) -> Upload:
+    """Attaches width/height (pixels) for images so the UI can warn about very small ones. Header read only; any
+    problem (not an image, unreadable, HEIC without a decoder) just leaves them unset."""
+    if upload.media_type == "image":
+        try:
+            from PIL import Image
+            with Image.open(upload.storage_url) as im:
+                upload.width, upload.height = im.size
+        except Exception:
+            pass
+    return upload
+
+
 router = APIRouter(prefix="/upload", tags=["Upload"])
 
 ALL_ALLOWED = settings.ALLOWED_IMAGE_TYPES + settings.ALLOWED_VIDEO_TYPES + settings.ALLOWED_AUDIO_TYPES
@@ -78,7 +91,7 @@ async def upload_file(
     )
     db.add(record)
     await db.flush()
-    return record
+    return _with_image_size(record)
 
 @router.get("/{upload_id}", response_model=UploadOut)
 async def get_upload(
@@ -93,4 +106,4 @@ async def get_upload(
     # someone else.
     if not u or u.user_id != current_user.user_id:
         raise HTTPException(404, "Upload not found")
-    return u
+    return _with_image_size(u)

@@ -52,6 +52,7 @@ build/
 /uploads/
 backend/uploads/
 backend/reports/
+backend/feedback_wrong/
 backend/_smoke_test_fixtures/
 models/uploads/
 models/reports/

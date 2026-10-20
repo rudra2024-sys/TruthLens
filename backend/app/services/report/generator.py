@@ -22,41 +22,25 @@ from app.models.models import Upload, DetectionResult
 from app.services.report.pdf_theme import (
     CONTENT_WIDTH,
     footer_block,
+    glossary_block,
     info_card,
+    plain_words_card,
     report_header,
     section_heading,
     technical_divider,
     tl_styles,
     verdict_card,
 )
+from app.services.report.plain_language import (
+    friendly_date,
+    glossary_terms,
+    plain_points,
+    summary_sentence,
+    verdict_label,
+)
 
 logger = logging.getLogger(__name__)
 
-_VERDICT_HEADLINE = {
-    "FAKE": "This file shows signs of AI generation or manipulation.",
-    "REAL": "This file appears to be authentic.",
-    "UNCERTAIN": "This result is inconclusive.",
-}
-
-_MEDIA_WORD = {"image": "image", "video": "video", "audio": "audio clip"}
-
-
-def _plain_summary_sentence(media_type: str, verdict: str, confidence: float) -> str:
-    """One honest, jargon-free sentence restating the already-computed verdict/confidence --
-    never a new claim, just a plain-English version of numbers detailed later in the report
-    (see pdf_theme.py's module docstring and CLAUDE.md section 8 rule 5)."""
-    kind = _MEDIA_WORD.get(media_type, "file")
-    pct = f"{confidence * 100:.0f}%"
-    if verdict == "FAKE":
-        return (f"TruthLens's detection models are {pct} confident this {kind} was generated or "
-                f"manipulated by AI. See “Technical Details” below for exactly how this was measured.")
-    if verdict == "REAL":
-        return (f"TruthLens's detection models are {pct} confident this {kind} is authentic, with no signs "
-                f"of AI generation or manipulation found. See “Technical Details” below for how this "
-                f"was measured.")
-    return (f"TruthLens's detection models could not confidently tell whether this {kind} is real or "
-            f"AI-generated (confidence {pct}). Treat this result as inconclusive rather than a verdict "
-            f"either way -- see “Technical Details” below.")
 
 
 def _rl_image(raw: bytes, width_cm: float, max_height_cm: float | None = None):
@@ -277,21 +261,20 @@ def generate_pdf_report(upload: Upload, result: DetectionResult) -> str:
 
     elements += report_header(
         tl, "Forensic Detection Report",
-        f"File: {upload.file_name} &nbsp;&middot;&nbsp; Scanned {result.detected_at}",
+        f"File: {upload.file_name} &nbsp;&middot;&nbsp; Scanned {friendly_date(result.detected_at)}",
     )
 
     # ---------------------------------------------------------
     # VERDICT -- the plain-English summary a non-technical reader needs first.
     # ---------------------------------------------------------
 
-    headline = _VERDICT_HEADLINE.get(result.verdict, "Result unavailable.")
-    summary_sentence = _plain_summary_sentence(upload.media_type, result.verdict, result.confidence_score)
     elements += verdict_card(
         tl,
         result.verdict,
-        f"Verdict: {result.verdict}",
-        summary_sentence + f"<br/><br/>{headline}",
+        f"Verdict: {verdict_label(result.verdict)}",
+        summary_sentence(upload, result),
     )
+    elements += plain_words_card(tl, plain_points(upload, result))
 
     # ---------------------------------------------------------
     # FILE / SCAN INFORMATION -- the "at a glance" facts, kept short and jargon-free.
@@ -301,34 +284,22 @@ def generate_pdf_report(upload: Upload, result: DetectionResult) -> str:
         ("File Name", upload.file_name),
         ("Media Type", upload.media_type.upper()),
         ("File Size", f"{upload.file_size_kb:.1f} KB"),
-        ("Scanned At", result.detected_at),
-        ("Confidence Score", f"{result.confidence_score * 100:.1f}%"),
+        ("Scanned At", friendly_date(result.detected_at)),
+        ("Tool's confidence", f"{result.confidence_score * 100:.1f}%"),
     ]
     if result.calibrated_confidence is not None:
-        info_rows.append(("Calibrated Confidence", f"{result.calibrated_confidence * 100:.1f}%"))
+        info_rows.append(("Estimated reliability", f"{result.calibrated_confidence * 100:.1f}%"))
     elements += info_card(info_rows)
     elements.append(Spacer(1, 0.3 * cm))
 
-    video_on_calibrated_scale = bool(result.video_analysis is not None
-                                     and getattr(result.video_analysis, "calibrated_fake_probability", None) is not None)
-    if result.calibrated_confidence is not None and not video_on_calibrated_scale:
-        small = ParagraphStyle("calib_small", parent=styles["Normal"], fontSize=8, textColor=colors.grey)
-        elements.append(
-            Paragraph(
-                "Calibrated confidence is temperature-scaled against measured accuracy on held-out data; "
-                "the confidence score above is the model's own unmodified output -- see CLAUDE.md section 25.",
-                small,
-            )
-        )
-        elements.append(Spacer(1, 0.2 * cm))
-
-    elements += technical_divider(
+    tech_head = technical_divider(
         tl,
-        "The figures below are the detection pipeline's own internal scores, model names and timing -- "
-        "useful for a technical reviewer, not required reading for the verdict above.",
+        "Everything below is for technical readers: the tool's internal scores, model names and timings. You do "
+        "not need it to understand the result above. The last page explains the terms in everyday words.",
     )
-    elements.append(Spacer(1, 0.1 * cm))
-    elements += info_card([("Model Used", result.model_used), ("Processing Time", f"{result.processing_time_ms:.0f} ms")])
+    tech_head.append(Spacer(1, 0.1 * cm))
+    elements.append(KeepTogether(
+        tech_head + info_card([("Model Used", result.model_used), ("Processing Time", f"{result.processing_time_ms:.0f} ms")])))
     elements.append(Spacer(1, 0.5 * cm))
 
     # ---------------------------------------------------------
@@ -338,6 +309,11 @@ def generate_pdf_report(upload: Upload, result: DetectionResult) -> str:
     if result.image_analysis:
 
         elements += section_heading(tl, "Image Pipeline Breakdown")
+        elements.append(Paragraph(
+            "The FAKE/REAL probability below is the higher of the FAKE probabilities from ConvNeXt-Tiny and a "
+            "CLIP-based second opinion (and the face-swap check, when it ran), listed individually as sub-scores.",
+            tl["small"]))
+        elements.append(Spacer(1, 0.15 * cm))
 
         image_analysis = result.image_analysis
 
@@ -588,8 +564,11 @@ def generate_pdf_report(upload: Upload, result: DetectionResult) -> str:
     # Best-effort: if anything fails the rest of the report is unaffected.
     # ---------------------------------------------------------
 
+    has_explanation = has_provenance = False
     try:
-        elements.extend(_explainability_flowables(upload, result, styles, tl))
+        flow = _explainability_flowables(upload, result, styles, tl)
+        elements.extend(flow)
+        has_explanation = bool(flow)
     except Exception:
         logger.exception("Explainability section skipped (upload_id=%s)", upload.upload_id)
 
@@ -598,7 +577,9 @@ def generate_pdf_report(upload: Upload, result: DetectionResult) -> str:
     # ---------------------------------------------------------
 
     try:
-        elements.extend(_provenance_flowables(upload, result, styles, tl))
+        flow = _provenance_flowables(upload, result, styles, tl)
+        elements.extend(flow)
+        has_provenance = bool(flow)
     except Exception:
         logger.exception("Provenance section skipped (upload_id=%s)", upload.upload_id)
 
@@ -606,13 +587,17 @@ def generate_pdf_report(upload: Upload, result: DetectionResult) -> str:
     # FOOTER / DISCLAIMER
     # ---------------------------------------------------------
 
+    has_face_swap = bool(result.image_analysis
+                         and getattr(result.image_analysis, "face_swap_fake_probability", None) is not None)
+    elements += glossary_block(tl, glossary_terms(upload.media_type, has_provenance, has_explanation, has_face_swap))
+
     elements += footer_block(
         tl,
-        "TruthLens Model Information",
-        "This report contains the output produced by the TruthLens detection pipeline. For image "
-        "analysis, the FAKE/REAL Probability is the higher of the FAKE probabilities reported by "
-        "ConvNeXt-Tiny and a CLIP-based second opinion, reported individually as sub-scores when "
-        "available. Legacy heuristic scores are included only when present.",
+        "About this report",
+        "This report was produced automatically by TruthLens's detection tools. It is an automated opinion, not "
+        "proof and not legal evidence. The tools can be wrong, especially on files made by generators, apps or "
+        "recording conditions they have not seen, and an authentic or uncertain result never proves a file is "
+        "genuine. For anything important, confirm with the original source.",
     )
 
     # ---------------------------------------------------------

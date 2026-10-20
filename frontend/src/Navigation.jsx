@@ -63,7 +63,7 @@ const Navigation = () => {
     // was two separate links ('Identity' and 'Exams') until 2026-10-14. The standalone
     // ad-hoc identity/practice-monitoring page was removed entirely (2026-10-16); ProctorLens
     // now handles organisation linking inline, so there's nothing left for a second nav item.
-    ...(user && !isOrg ? [{ label: 'ProctorLens', link: '/proctorlens', ariaLabel: 'Go to ProctorLens' }] : []),
+    ...(user && !isOrg && user.role !== 'individual' ? [{ label: 'ProctorLens', link: '/proctorlens', ariaLabel: 'Go to ProctorLens' }] : []),
     { label: 'History', link: '/history', ariaLabel: 'Go to history' },
     { label: 'Reports', link: '/reports', ariaLabel: 'Go to reports' },
     { label: 'About', link: '/about', ariaLabel: 'Go to about' },

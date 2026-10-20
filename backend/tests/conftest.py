@@ -24,6 +24,7 @@ atexit.register(shutil.rmtree, _TMP, True)      # last-resort cleanup once every
 os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{(_TMP / 'test.db').as_posix()}"
 os.environ["UPLOAD_DIR"] = str(_TMP / "uploads")
 os.environ["REPORT_DIR"] = str(_TMP / "reports")
+os.environ["FEEDBACK_WRONG_DIR"] = str(_TMP / "feedback_wrong")
 os.environ["AUTH_SECRET_KEY"] = "test-only-secret"
 for _k in ("IMAGE_MODEL_DEVICE", "CLIP_MODEL_DEVICE", "VIDEO_MODEL_V1_DEVICE"):
     os.environ.setdefault(_k, "cpu")

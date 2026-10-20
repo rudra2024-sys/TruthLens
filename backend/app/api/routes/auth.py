@@ -28,9 +28,9 @@ class SignupRequest(BaseModel):
     email: EmailStr
     password: str
     # Chosen on the real signup form with no default pre-selected (the user must actively pick
-    # one) -- defaults to "student" here only as a safety net for callers that don't care about
+    # one; "individual" = just scanning files, no proctoring) -- defaults to "student" here only as a safety net for callers that don't care about
     # account type (this project's own test suite signs up dozens of throwaway accounts).
-    account_type: Literal["student", "organization"] = "student"
+    account_type: Literal["student", "organization", "individual"] = "student"
 
 
 class LoginRequest(BaseModel):

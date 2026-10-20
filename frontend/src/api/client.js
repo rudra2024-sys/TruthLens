@@ -81,6 +81,13 @@ api.interceptors.response.use(
   }
 )
 
+// Same message as friendlyError, plus the HTTP status (the batch scanner retries on 429).
+function toError(err) {
+  const e = new Error(friendlyError(err))
+  e.status = err?.response?.status
+  return e
+}
+
 export const uploadMedia = async (file, onProgress) => {
   const form = new FormData()
   form.append('file', file)
@@ -96,7 +103,7 @@ export const uploadMedia = async (file, onProgress) => {
       },
     })
   } catch (err) {
-    throw new Error(friendlyError(err))
+    throw toError(err)
   }
 }
 
@@ -104,7 +111,7 @@ export const runDetection = async (uploadId) => {
   try {
     return await api.post(`/detect/${uploadId}`)
   } catch (err) {
-    throw new Error(friendlyError(err))
+    throw toError(err)
   }
 }
 
@@ -128,7 +135,7 @@ export const getDetectionResult = async (uploadId) => {
   try {
     return await api.get(`/detect/${uploadId}/result`)
   } catch (err) {
-    throw new Error(friendlyError(err))
+    throw toError(err)
   }
 }
 
@@ -164,7 +171,7 @@ export const startDetectionJob = async (uploadId) => {
   try {
     return await api.post(`/detect/${uploadId}/jobs`)
   } catch (err) {
-    throw new Error(friendlyError(err))
+    throw toError(err)
   }
 }
 
@@ -586,6 +593,30 @@ export const getUpload = async (uploadId) => {
     return await api.get(`/upload/${uploadId}`)
   } catch (err) {
     throw new Error(friendlyError(err))
+  }
+}
+
+/** Downloads a CSV or PDF summary of a batch. items: [{ upload_id|null, file_name, error|null }]. */
+export const downloadBatchExport = async (items, format) => {
+  try {
+    const response = await api.post('/batch/export', { items, format }, { responseType: 'blob', timeout: 120000 })
+    const disposition = response.headers['content-disposition'] || ''
+    const match = disposition.match(/filename="?([^";]+)"?/)
+    const filename = match ? match[1] : `TruthLens_Batch.${format}`
+    const blobUrl = window.URL.createObjectURL(response.data)
+    const link = document.createElement('a')
+    link.href = blobUrl
+    link.download = filename
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    window.URL.revokeObjectURL(blobUrl)
+  } catch (err) {
+    // a failed blob request has its JSON error body as a Blob; read it so the message is the server's, not generic
+    if (err?.response?.data instanceof Blob) {
+      try { err.response.data = JSON.parse(await err.response.data.text()) } catch { /* keep generic */ }
+    }
+    throw toError(err)
   }
 }
 

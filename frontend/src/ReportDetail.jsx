@@ -15,7 +15,8 @@ import ExplanationPanel from './components/ExplanationPanel'
 import ProvenancePanel from './components/ProvenancePanel'
 import FeedbackPanel from './components/FeedbackPanel'
 import LowResolutionNote from './components/LowResolutionNote'
-import { getDisplayVerdictInfo, getDisplayVerdict } from './lib/verdict'
+import SmallImageNote from './components/SmallImageNote'
+import { getDisplayVerdictInfo, getDisplayVerdict, getImageFakeHint } from './lib/verdict'
 import { stationTag } from './lib/stations'
 
 /**
@@ -160,7 +161,7 @@ export default function ReportDetail() {
             <p className="tl-hud-label">{stationTag(5)} — Forensic Case File</p>
             <CaseTag id={result.upload_id} />
           </div>
-          <h1 className="font-serif text-[36px] md:text-[42px] text-bone mb-1 break-all">
+          <h1 title={upload?.file_name} className="font-serif text-[36px] md:text-[42px] text-bone mb-1 break-words line-clamp-2">
             {upload?.file_name || 'Detection Result'}
           </h1>
           <p className="text-[13px] text-bone-faint tl-figure">
@@ -179,18 +180,20 @@ export default function ReportDetail() {
                 <p className="tl-hud-label mb-2">Verdict</p>
                 <h2 className={`font-serif text-[32px] md:text-[36px] mb-2 ${info.textClass} ${info.key === 'manipulated' ? 'font-bold' : ''}`}>{info.label}</h2>
                 <p className={info.key === 'manipulated' ? `text-[16px] font-bold ${info.textClass}` : 'text-[14px] text-bone-dim'}>{info.caption}</p>
+                {getImageFakeHint(result, info.key) && <p className="text-[13px] text-bone-dim mt-1">{getImageFakeHint(result, info.key)}</p>}
               </div>
               <div className="flex flex-col items-center gap-2">
                 <ConfidenceGauge value={result.confidence_score} accent={info.accent} size={128} />
                 {result.calibrated_confidence != null && result.video_analysis?.calibrated_fake_probability == null && (
-                  <p className="tl-figure text-[11px] text-bone-faint" title="Temperature-scaled against measured accuracy — see CLAUDE.md section 25. Raw model output above is unchanged.">
-                    calibrated: {(result.calibrated_confidence * 100).toFixed(1)}%
+                  <p className="tl-figure text-[11px] text-bone-faint" title="The ring shows the model's own score. This is the same score adjusted against how often the model was actually right in our tests, so it is usually the more honest figure. Neither number is a guarantee.">
+                    estimated reliability: {(result.calibrated_confidence * 100).toFixed(1)}%
                   </p>
                 )}
               </div>
             </div>
 
             <LowResolutionNote analysis={result.video_analysis} className="-mt-6 mb-10" />
+            <SmallImageNote width={upload?.width} height={upload?.height} className="-mt-6 mb-10" />
 
             {/* Specimen information */}
             <motion.div

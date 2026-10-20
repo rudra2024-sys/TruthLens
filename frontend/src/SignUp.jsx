@@ -10,6 +10,12 @@ import Logo from './Logo'
 
 const ACCOUNT_TYPES = [
   {
+    value: 'individual',
+    label: 'Individual',
+    icon: User,
+    description: 'Scan files for yourself. No exams.',
+  },
+  {
     value: 'student',
     label: 'Student',
     icon: GraduationCap,
@@ -29,7 +35,7 @@ function AccountTypePicker({ value, onChange }) {
       <p className="text-[11px] font-medium tracking-[0.08em] uppercase text-bone-dim mb-3">
         I am a...
       </p>
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         {ACCOUNT_TYPES.map(({ value: v, label, icon: Icon, description }) => {
           const selected = value === v
           return (
@@ -38,7 +44,7 @@ function AccountTypePicker({ value, onChange }) {
               type="button"
               onClick={() => onChange(v)}
               aria-pressed={selected}
-              className={`text-left p-4 rounded-[4px] border transition-colors duration-300 ${
+              className={`flex flex-col items-start justify-start text-left p-4 rounded-[4px] border transition-colors duration-300 ${
                 selected
                   ? 'border-brass bg-[rgba(200,147,97,0.06)]'
                   : 'border-line hover:border-line-strong'

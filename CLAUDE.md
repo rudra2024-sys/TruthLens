@@ -1240,3 +1240,40 @@ scored by the **deployed Video Model v1 round 4 checkpoint** on the Haar face cr
   `backend/checkpoints/image_face_swap/face_swap_photo_r2_blend50.pt` (gitignored; in `models/CHECKSUMS.sha256`) and the image check uses it
   automatically when that file exists (`IMAGE_FACE_SWAP_CHECKPOINT` overrides; set it to an empty string, or delete the file, to roll back
   to the video round-4 weights and the `image_face_swap` calibration). Note the staged-path env var described above is now optional. Full suite 513 passed, 18 skipped.
+
+---
+
+## 29. Individual account type, wrong-feedback copies, plain-language report, batch scan - 2026-10-21
+
+Additive; no model, weight, threshold or stored result changed (section 8 rule 1 untouched).
+
+- **"Individual" account type**: `SignupRequest.account_type` also accepts `individual` (scan files, no proctoring). Signup page
+  has a third card; the nav hides ProctorLens for it. It is not an admin: `/admin/*` stays 403. There is still no safe
+  self-service admin role - `scripts/promote_admin.py` promotes to `organization`, which anyone can already pick at signup.
+- **Wrong-feedback copies** (`services/feedback_store.py`, `FEEDBACK_WRONG_DIR`, default `backend/feedback_wrong/`, gitignored):
+  when a user disagrees, labels the file `real`/`ai` and ticked "allow reuse", the file is copied to
+  `<dir>/<real|ai>/<media_type>/<upload_id>.<ext>` + a `.json` (verdict shown, label, comment). Changing/withdrawing the feedback
+  or deleting the account removes the copy. Never raises into the feedback save. Labels are the user's word: review before any
+  retraining (which needs approval).
+- **Report in plain words** (`services/report/plain_language.py`, `pdf_theme.plain_words_card/glossary_block`): the single-file PDF
+  now opens with an "In plain words" box (how sure, things to keep in mind, what to do next), a readable date, "Manipulated (FAKE)"
+  wording, an end-of-report glossary limited to the sections actually present, and no internal doc references. Technical sections
+  are unchanged and labelled "for technical readers". Wording is hedged ("the tool thinks ... probably").
+- **Web UI**: `ConfidenceGauge` arc drawn with a plain SVG path (it never redrew with `motion.path`); flagged images show
+  "Likely AI-generated" / "Likely a face swap" under "Manipulation detected" (face-swap only when the face check is the highest
+  component score); `SmallImageNote` below 300 px short side (judgement call - on 26 local real photos, all < 300 px, 9 were not
+  REAL; no large real photos to compare); upload API returns `width`/`height` for images; second confidence number labelled
+  "estimated reliability"; favicon added.
+- **Batch scan** (Verify page tab "Batch (up to 100)", `components/BatchVerify.jsx`): pick files or a whole folder (also drag-drop),
+  max 100 (`lib/batchFiles.js`), images/audio two at a time, videos one at a time (existing jobs API), results table, Cancel.
+  Prod proxy limits upload+detect to 20 req/min per client (burst 5, one shared zone); `lib/pacer.js` token bucket sends ~17.6/min
+  in production (`VITE_BATCH_PACE_MS`, 0 in dev) and retries 429s. Export: `POST /api/v1/batch/export` (`routes/batch.py`,
+  `services/batch_export.py`, `report/batch_report.py`) -> CSV (formula-injection guarded, UTF-8 BOM) or a plain-words summary PDF,
+  rows read back from stored results, own uploads only (404 otherwise), failed/cancelled files get rows with the reason.
+  Verified in Chrome: 100-file folder batch (50 s), cap message, skipped non-media, failed fake PNG, cancel. Not done: skipping
+  files that were already scanned (needs a content-hash column).
+- **Observed in that batch** (TruthLens_Test, 100 files): both TTS-vocoder audio clips (`audio/ai_generated`, melgan/waveglow)
+  came back Authentic; 12 of 13 challenge-set deepfake audio, 15 of 15 Celeb-DF videos flagged; the 25 tiny real photos were 16
+  Authentic / 6 Uncertain / 3 Manipulated. Small, local, uncontrolled samples - a smoke test, not a benchmark.
+- Tests: `test_feedback_store.py`, `test_plain_language.py`, `test_batch_export.py`, plus additions to `test_admin.py`.
+  Full suite 524 passed, 10 skipped (`-m "not models"`).

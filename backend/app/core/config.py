@@ -9,6 +9,7 @@ class Settings(BaseSettings):
 
     UPLOAD_DIR: str = "uploads"
     REPORT_DIR: str = "reports"
+    FEEDBACK_WRONG_DIR: str = "feedback_wrong"   # files users flagged as wrongly judged (services/feedback_store.py)
     MAX_FILE_SIZE_MB: int = 100
 
     ALLOWED_IMAGE_TYPES: list = ["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"]

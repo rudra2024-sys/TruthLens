@@ -188,3 +188,44 @@ def footer_block(styles: dict, heading: str, body: str) -> list:
             "tl_footer_heading", parent=styles["small"], fontName="Helvetica-Bold", textColor=BRASS_DEEP)),
         Paragraph(body, styles["small"]),
     ]
+
+
+def _escape(text: str) -> str:
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def plain_words_card(styles: dict, points: list[tuple[str, str]]) -> list:
+    """'In plain words': short headed paragraphs for a reader who will not open the technical sections. A text with
+    several lines (separated by newlines) becomes a bulleted list under its heading."""
+    rows: list = [[Paragraph("IN PLAIN WORDS", styles["kicker"])]]
+    for heading, text in points:
+        rows.append([Paragraph(f"<b>{_escape(heading)}</b>", styles["body"])])
+        lines = [ln for ln in text.split("\n") if ln.strip()]
+        if len(lines) > 1:
+            for ln in lines:
+                rows.append([Paragraph(f"&bull;&nbsp; {_escape(ln)}", styles["body"])])
+        else:
+            rows.append([Paragraph(_escape(text), styles["body"])])
+    card = Table(rows, colWidths=[CONTENT_WIDTH])
+    cmds = [
+        ("BACKGROUND", (0, 0), (-1, -1), CARD_BG),
+        ("BOX", (0, 0), (-1, -1), 0.75, LINE),
+        ("LEFTPADDING", (0, 0), (-1, -1), 16), ("RIGHTPADDING", (0, 0), (-1, -1), 16),
+        ("TOPPADDING", (0, 0), (-1, -1), 2), ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+        ("TOPPADDING", (0, 0), (0, 0), 12),
+        ("BOTTOMPADDING", (0, -1), (0, -1), 12),
+    ]
+    for i, row in enumerate(rows):          # a little air before each new heading
+        if i > 0 and row[0].text.startswith("<b>"):
+            cmds.append(("TOPPADDING", (0, i), (0, i), 9))
+    card.setStyle(TableStyle(cmds))
+    return [card, Spacer(1, 0.6 * cm)]
+
+
+def glossary_block(styles: dict, terms: list[tuple[str, str]]) -> list:
+    """'What the terms in this report mean' - one short definition per term, in everyday words."""
+    out = [Spacer(1, 0.4 * cm)] + section_heading(styles, "What the terms in this report mean")
+    for term, definition in terms:
+        out.append(Paragraph(f"<b>{_escape(term)}.</b> {_escape(definition)}", styles["body"]))
+        out.append(Spacer(1, 0.12 * cm))
+    return out
