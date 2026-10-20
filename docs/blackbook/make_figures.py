@@ -377,7 +377,7 @@ def fig_seq_job():
 
 def fig_proctor_flow():
     fig, ax = canvas(11, 6.8)
-    st = [("Join organisation", "private join code", "teal"), ("Open exam", "MCQ, time, max_flags", "teal"),
+    st = [("Join organisation", "private join code", "teal"), ("Open exam", "MCQ, pass mark, max_flags", "teal"),
           ("Government-ID check", "one face, blur gate\nembedding used transiently", "teal"),
           ("Live selfie match", "FaceNet cosine ≥ 0.44\n(±0.1 band)", "teal")]
     xs = [1, 26, 51, 76]
@@ -443,7 +443,7 @@ def fig_er():
     aa = ent(82, 36, "audio_analysis", ["FK result_id", "mean / std P(fake)"], "green", w=17)
     fb = ent(28, 48, "feedback", ["PK feedback_id", "FK upload_id, user_id", "agrees, true_label", "allow_reuse"], "grey")
     al = ent(1, 48, "audit_log", ["PK id", "user_id (no FK)", "action, ts"], "grey")
-    ex = ent(1, 30, "exams", ["PK exam_id", "FK org user_id", "title, duration", "max_flags"], "teal")
+    ex = ent(1, 30, "exams", ["PK exam_id", "FK org user_id", "title, pass_threshold", "max_flags"], "teal")
     eq = ent(1, 10.5, "exam_questions", ["PK question_id", "FK exam_id", "options, answer"], "teal")
     ea = ent(28, 26, "exam_attempts", ["PK attempt_id", "FK exam_id, user_id", "FK session_id (1:1)", "status, score"], "teal")
     ms = ent(55, 40, "monitoring_sessions", ["PK session_id", "FK user_id", "started / ended"], "teal", w=23)
@@ -473,29 +473,28 @@ def fig_deploy():
 
 
 def fig_gantt():
-    phases = [("Earlier work: literature survey, CIFAKE baseline (pre-repository)", "2026-08-25", "2026-09-03"),
-              ("Review 2 build: upload, auth, PDF, history, owner scoping", "2026-09-03", "2026-09-10"),
+    # first and last commit date of each phase (git log); work before the first commit is not dated, so not drawn
+    phases = [("Review 2 build: upload, auth, PDF, history, owner scoping", "2026-09-03", "2026-09-10"),
               ("CLIP second opinion + portrait-app source", "2026-09-11", "2026-09-16"),
-              ("Evaluation, explainability, provenance, jobs, CI", "2026-09-17", "2026-09-27"),
-              ("Audio Model v1 (wav2vec 2.0) integration", "2026-09-27", "2026-09-29"),
-              ("Video experiments, robustness, calibration, hardening", "2026-09-30", "2026-10-03"),
-              ("ProctorLens: identity, monitoring signals", "2026-10-04", "2026-10-10"),
-              ("Government ID + proctored MCQ exams", "2026-10-10", "2026-10-16"),
-              ("Video round 4 + image face-swap check", "2026-10-10", "2026-10-18"),
-              ("UI polish, HEIC support, final report", "2026-10-18", "2026-10-20")]
+              ("Evaluation, explainability, provenance, jobs, CI, deployment", "2026-09-23", "2026-09-27"),
+              ("Audio Model v1 (wav2vec 2.0) integration", "2026-09-29", "2026-09-29"),
+              ("Video experiments, robustness, calibration, hardening", "2026-10-02", "2026-10-03"),
+              ("ProctorLens: identity, monitoring signals, session reports", "2026-10-09", "2026-10-10"),
+              ("Government ID, proctored MCQ exams, ProctorLens reorganisation", "2026-10-14", "2026-10-16"),
+              ("Video calibration + round 4, image face-swap check", "2026-10-10", "2026-10-18"),
+              ("UI polish, HEIC support, final report", "2026-10-19", "2026-10-20")]
     import datetime as dt
     d = lambda s: dt.date.fromisoformat(s)
-    fig, ax = plt.subplots(figsize=(10, 4.4))
+    fig, ax = plt.subplots(figsize=(10, 4.2))
     for i, (n, a, b) in enumerate(phases):
-        ax.barh(i, (d(b) - d(a)).days, left=d(a).toordinal(), color=list(S.values())[i % 6], alpha=0.75,
-                hatch="//" if i == 0 else None)
+        ax.barh(i, max(1, (d(b) - d(a)).days + 1), left=d(a).toordinal(), color=list(S.values())[i % 6], alpha=0.75)
     ax.set_yticks(range(len(phases)), [p[0] for p in phases], fontsize=9.5)
     ax.invert_yaxis()
-    ticks = [dt.date(2026, 8, 25), dt.date(2026, 9, 1), dt.date(2026, 9, 8), dt.date(2026, 9, 15), dt.date(2026, 9, 22),
+    ticks = [dt.date(2026, 9, 1), dt.date(2026, 9, 8), dt.date(2026, 9, 15), dt.date(2026, 9, 22),
              dt.date(2026, 9, 29), dt.date(2026, 10, 6), dt.date(2026, 10, 13), dt.date(2026, 10, 20)]
     ax.set_xticks([t.toordinal() for t in ticks], [t.strftime("%d %b") for t in ticks])
     ax.grid(axis="y", alpha=0)
-    ax.set_title("Implementation timeline from the git history (hatched: start date not recorded)", fontsize=11)
+    ax.set_title("Implementation phases by commit date (earlier, undated work not shown)", fontsize=11)
     save(fig, "gantt")
 
 
@@ -527,6 +526,33 @@ def chart_image_seen_unseen():
     axes[1].set_ylabel("")
     axes[0].legend(fontsize=8.5, loc="lower left", ncol=3)
     save(fig, "c_image_seen_unseen")
+
+
+def chart_confusion():
+    """Counts from backend/eval/results/{image,video}/summary.csv (tp/tn/fp/fn at the threshold) and the deployed
+    three-way verdict tables behind backend/eval/results/{image,video}/confusion_verdicts.png."""
+    import numpy as np
+    mats = [("Image ensemble, threshold 0.5", [[2889, 220], [1026, 2397]], ["REAL", "FAKE"]),
+            ("Image ensemble, deployed bands", [[2826, 105, 178], [941, 166, 2316]], ["REAL", "UNCERTAIN", "FAKE"]),
+            ("Video epoch 11, threshold 0.525", [[131, 24], [40, 115]], ["REAL", "FAKE"]),
+            ("Video epoch 11, raw ±0.2 band", [[6, 149, 0], [0, 155, 0]], ["REAL", "UNCERTAIN", "FAKE"])]
+    fig, axes = plt.subplots(2, 2, figsize=(10, 6.2))
+    for ax, (title, m, cols) in zip(axes.flat, mats):
+        m = np.array(m)
+        share = m / m.sum(axis=1, keepdims=True)
+        ax.imshow(share, cmap="Blues", vmin=0, vmax=1, aspect="auto")
+        for (r, c), v in np.ndenumerate(m):
+            ax.text(c, r, f"{v:,}\n({share[r, c]:.0%})", ha="center", va="center", fontsize=10,
+                    color="white" if share[r, c] > 0.55 else INK)
+        ax.set_xticks(range(len(cols)), cols, fontsize=9)
+        ax.set_yticks([0, 1], ["true REAL", "true FAKE"], fontsize=9)
+        ax.set_xlabel("predicted", fontsize=9)
+        ax.set_title(title, fontsize=10.5)
+        ax.grid(False)
+        for sp in ax.spines.values():
+            sp.set_visible(False)
+    fig.tight_layout()
+    save(fig, "c_confusion")
 
 
 def chart_unseen_sources():
@@ -669,7 +695,7 @@ def chart_identity_thresholds():
 if __name__ == "__main__":
     for f in [fig_architecture, fig_usecase, fig_dfd0, fig_dfd1, fig_pipe_image, fig_pipe_video, fig_pipe_audio, fig_band,
               fig_provenance, fig_seq_scan, fig_seq_job, fig_proctor_flow, fig_monitor_signals, fig_er, fig_deploy, fig_gantt,
-              chart_image_seen_unseen, chart_unseen_sources, chart_video_r4, chart_video_variants, chart_video_res,
+              chart_image_seen_unseen, chart_confusion, chart_unseen_sources, chart_video_r4, chart_video_variants, chart_video_res,
               chart_img_robust, chart_vid_robust, chart_calibration, chart_fairness, chart_faceswap, chart_audio,
               chart_identity_thresholds]:
         f()

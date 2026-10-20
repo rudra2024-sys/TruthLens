@@ -18,7 +18,7 @@ SHORT_TITLE = "TruthLens: An Evidence-Oriented Multimodal Platform for Detecting
 STUDENTS = [("Manini Jaiswal", "23101C0060"), ("Rudrapratap Shinde", "23101B0015"),
             ("Soham Thakur", "23101B0012"), ("Atharva Pethkar", "23101B0010")]
 GUIDE = "Prof. Dhanashree Tamhane"
-YEAR = "2025-2026"
+YEAR = "2026-2027"  # confirm with the department
 
 ABSTRACT = (
     "Image generators, face-swap apps and voice-cloning services have made synthetic media cheap to produce and hard to "
@@ -260,11 +260,11 @@ BODY = [
           "requests and enforce ownership; detectors and ProctorLens services run the models; the evidence layer computes "
           "explanations, provenance and calibration on demand; and the storage layer keeps results in SQLite through async "
           "SQLAlchemy and files on disk. Models are loaded once per process and shared between detectors and explainers."),
-    ("fig", "arch", "Block diagram of the proposed system", 6.0),
     ("p", "Two design decisions are visible in the figure. First, the evidence layer is separate from the detectors: an "
           "explanation or provenance failure can never change or break a stored verdict. Second, slow work (video scans and "
           "proctoring checks) runs in background job managers with a bounded thread pool, so a long video never freezes the "
           "server for other users."),
+    ("fig", "arch", "Block diagram of the proposed system", 6.0),
 
     ("h2", "Dataset Description"),
     ("p", "The details of the datasets used are given in Table 3.1 (training) and Table 3.2 (evaluation). A source is "
@@ -313,7 +313,6 @@ BODY = [
     ("h3", "Image Pipeline"),
     ("p", "Figure 3.2 shows how an image is parsed. After decoding with Pillow (HEIC/HEIF through pillow-heif), three "
           "scorers run in parallel on the same file:"),
-    ("fig", "pipe_image", "Image detection pipeline", 6.2),
     ("bul", [
         "**ConvNeXt-Tiny** {convnext}, fine-tuned by the team. It was first trained on CIFAKE, then fine-tuned on four "
         "sources (CIFAKE, AI-vs-Human, 140k Faces and DeepDetect-2025, which covers StyleGAN3, DALL-E 3, Midjourney and SD3) "
@@ -329,6 +328,7 @@ BODY = [
         "crop is scored by an EfficientNet-B0 photo model (round 2: a 50/50 weight blend of the video model and a fine-tune "
         "on real-app swaps) and Platt-calibrated. Any failure here means only \"check not applied\"; the scan still succeeds.",
     ]),
+    ("fig", "pipe_image", "Image detection pipeline", 6.2),
     ("p", "With p_C, p_L and p_F the fake probabilities of ConvNeXt, CLIP and the face check, the image score is given by "
           "Equation (3.1):"),
     ("eq", [("sub", "p", "img"), ("t", "=max("), ("sub", "p", "C"), ("t", ","), ("sub", "p", "L"), ("t", ","), ("sub", "p", "F"), ("t", ")")], "3.1"),
@@ -404,7 +404,6 @@ BODY = [
 
     ("h3", "Provenance Layer"),
     ("p", "The provenance service (Figure 3.6) runs independently of the detectors and reports four kinds of evidence:"),
-    ("fig", "provenance", "Provenance checks and how they reach the user", 5.8),
     ("bul", [
         "**C2PA Content Credentials** {c2pa}, validated with the official SDK against the published trust list: whether the "
         "signature is valid, whether the file is unchanged since signing, whether the signer is trusted, and whether the "
@@ -417,6 +416,7 @@ BODY = [
         "library; a match requires all 48 bits, and for video eight sampled frames are checked.",
         "**Error level analysis** for JPEG files, shown as a visual aid only and never scored.",
     ]),
+    ("fig", "provenance", "Provenance checks and how they reach the user", 5.8),
     ("p", "Provenance never changes the stored verdict, because metadata can be removed by any re-save. A present AI "
           "declaration is strong evidence; an absent one says nothing either way. When the models say REAL or UNCERTAIN but "
           "the file declares itself AI-generated, the API, the interface and the PDF all show an explicit conflict note, and "
@@ -426,7 +426,8 @@ BODY = [
     ("p", "ProctorLens reuses the face-analysis stack for proctored online examinations (Figure 3.7). An organisation "
           "account creates MCQ exams and shares a private join code; a student links to the organisation, opens an exam, "
           "and must pass a fresh identity check for every attempt: a government-ID photo is checked for exactly one sharp "
-          "face, its FaceNet {facenet} embedding is used transiently, and a live selfie must match it."),
+          "face, the photo itself is deleted as soon as its FaceNet {facenet} embedding has been extracted (also when the "
+          "check fails), and a live selfie must match that embedding."),
     ("fig", "proctor_flow", "ProctorLens examination flow", 6.2),
     ("p", "Identity is decided by the cosine similarity of 512-dimensional InceptionResNet-v1 (VGGFace2) embeddings of MTCNN "
           "{mtcnn} aligned faces, Equation (3.5), banded around a threshold of 0.44 with a margin of 0.1. The threshold was "
@@ -499,7 +500,7 @@ BODY = [
     ("bul", [
         "**Privacy:** every upload, result, job, report, feedback item and session is visible only to its owner; others "
         "receive 404, never 403, so an identifier does not reveal that a resource exists. GPS coordinates are never "
-        "returned. ID embeddings are used transiently.",
+        "returned. Government-ID photos are deleted immediately after verification; only the face embedding is kept.",
         "**Honesty:** no fabricated numbers in the UI; borderline scores are UNCERTAIN; missing metadata is never presented "
         "as evidence of authenticity; every model claim carries its measured limits.",
         "**Responsiveness:** image and audio scans complete within the request (about 0.5–1.2 s and 3.5 s on CPU in the "
@@ -509,6 +510,26 @@ BODY = [
         "**Maintainability:** swappable model back-ends selected by environment variables, documented rollback paths, and "
         "an automated test suite run in CI.",
     ]),
+
+    ("h3", "Hardware and Software Requirements"),
+    ("p", "Table 4.1 lists what is needed to run the system. The values come from the measured deployment (memory, file "
+          "sizes) and from the configuration files in the repository; the team's own development and evaluation ran on "
+          "ordinary Windows 11 laptops with CPU-only inference."),
+    ("tab", "Hardware and software requirements",
+     ["Item", "Requirement", "Basis / notes"],
+     [["Processor", "64-bit x86 CPU; no GPU needed for inference", "All scans and evaluation in this report ran on CPU"],
+      ["Memory (RAM)", "4 GB or more recommended", "About 265 MB resident with image and video models loaded; PyTorch may commit up to about 2.3 GB of virtual memory"],
+      ["Storage", "5 GB or more free", "About 0.85 GB of project checkpoints, about 1.3 GB of downloaded CLIP and wav2vec 2.0 backbones, plus uploads and reports"],
+      ["GPU (training only)", "Cloud GPU (Kaggle / Google Colab)", "Used only for the fine-tuning rounds"],
+      ["Client device", "Modern browser (Chrome, Edge or Firefox)", "Webcam and microphone needed for ProctorLens exams"],
+      ["Network", "Internet on first start", "CLIP and wav2vec 2.0 backbones download once, then are cached"],
+      ["Operating system", "Windows 10/11 (development); Linux via Docker (production)", "docker-compose.yml and docker-compose.prod.yml"],
+      ["Backend runtime", "Python 3.11", "backend/Dockerfile.prod (python:3.11-slim)"],
+      ["Frontend build", "Node.js 20, npm", "frontend/Dockerfile (node:20-alpine)"],
+      ["Web server", "nginx 1.27", "Serves the built SPA and proxies /api"],
+      ["Database", "SQLite (any SQLAlchemy URL accepted)", "DATABASE_URL in core/config.py"],
+      ["Containers", "Docker Engine with Docker Compose", "Optional for development, used for production"]],
+     [1700, 3000, 3966]),
 
     ("h2", "Use-Case Diagram"),
     ("p", "Figure 4.1 shows the actors and use cases. A user (or student) performs media verification and takes proctored "
@@ -543,7 +564,7 @@ BODY = [
     ("fig", "er", "Entity-relationship diagram", 6.2),
 
     ("h2", "API Design"),
-    ("p", "All routes are mounted under /api/v1 and documented automatically by FastAPI's OpenAPI page. Table 4.1 lists the "
+    ("p", "All routes are mounted under /api/v1 and documented automatically by FastAPI's OpenAPI page. Table 4.2 lists the "
           "main endpoints."),
     ("tab", "Main REST endpoints",
      ["Method and path", "Purpose"],
@@ -596,16 +617,62 @@ BODY = [
         "can delete their account, which removes every upload, report, result and feedback row.",
     ]),
 
+    ("h2", "Data Protection and Ethical Use"),
+    ("p", "ProctorLens processes biometric data (face images and embeddings) and photographs of government IDs, and "
+          "TruthLens stores the files users upload. In India such data falls under the Digital Personal Data Protection Act, "
+          "2023, which expects consent for a stated purpose, collection limited to what that purpose needs, reasonable "
+          "security safeguards and erasure on request. The implementation follows these principles as follows:"),
+    ("bul", [
+        "**Consent:** identity enrolment and government-ID verification refuse to proceed without explicit consent, and the "
+        "time of consent is stored; reuse of feedback files for evaluation is a separate, opt-in, withdrawable consent.",
+        "**Data minimisation:** the government-ID photo and the verification selfie are deleted right after the embedding "
+        "is extracted, on success and on failure; GPS coordinates found in uploads are never returned; a retention script "
+        "deletes raw monitoring frames older than a chosen number of days while keeping the derived flags needed for reports.",
+        "**Security safeguards:** owner-only access on every route, hashed passwords, signed tokens, rate limits and an "
+        "audit log of security-relevant actions.",
+        "**Erasure:** a user can delete the stored face reference, and deleting the account removes every upload, report, "
+        "result and feedback record.",
+        "**Human oversight:** proctoring flags and detection verdicts are presented as evidence for a person to review; the "
+        "only automatic action is ending an exam attempt at the flag limit that the organisation itself sets.",
+    ]),
+    ("p", "These are engineering measures, not a legal compliance audit. An institution deploying the system would still "
+          "need a privacy notice for candidates, a fixed retention period (the retention script must be scheduled; it does "
+          "not run by itself), a grievance contact and a review by its data-protection officer. Uploaded media in TruthLens is "
+          "kept until the user deletes it or the account."),
+
     ("h2", "Testing"),
-    ("p", "The backend has a pytest suite of 46 test modules: 512 tests pass and 18 skip when optional checkpoints are "
-          "absent. The CI subset (pytest -m \"not models\") needs no model files and runs on GitHub Actions together with a "
+    ("p", "The backend has a pytest suite of 46 test modules. In the final run on the development machine 530 tests "
+          "passed and 1 was skipped (a check whose test images are not present); tests that need a model checkpoint skip "
+          "themselves when it is missing. The CI subset (pytest -m \"not models\") needs no model files and runs on GitHub Actions together with a "
           "clean frontend build. The suite covers authentication, upload validation, 404-not-403 ownership on every route, "
           "error mapping, verdict banding including the protected thresholds, calibration, jobs (non-blocking, cancel, "
           "queue position), explainability and provenance logic (tamper, strip, hostile metadata), the watermark decoder, "
           "PDF content, feedback consent, deployment helpers, identity, monitoring, exams and the evaluation metrics against "
           "scikit-learn. Checkpoint-dependent tests reproduce production scores exactly. A mutation script deliberately "
           "breaks 17 guarded behaviours (for example the thresholds, ownership checks, idempotent detect and consent gating) "
-          "and confirms that the named test fails each time."),
+          "and confirms that the named test fails each time. Table 4.3 lists representative test cases; each one is an "
+          "automated test in backend/tests, and all of them passed in the final run of the suite."),
+    ("tab", "Representative test cases",
+     ["ID", "Module", "Input / action", "Expected result", "Result"],
+     [["TC01", "Authentication", "Sign up with a password shorter than 8 characters", "Rejected with a validation error", "Pass"],
+      ["TC02", "Authentication", "Log in with a wrong password, and with an unknown email", "Same 401 error in both cases", "Pass"],
+      ["TC03", "Authentication", "Call /auth/me with a tampered, wrongly signed or expired token", "Rejected with 401", "Pass"],
+      ["TC04", "Upload", "Plain text sent with Content-Type image/png", "Rejected: leading bytes do not match", "Pass"],
+      ["TC05", "Upload", "File larger than MAX_FILE_SIZE_MB", "Rejected; nothing stored", "Pass"],
+      ["TC06", "Access control", "Second user requests the first user's upload, result, report, explanation or provenance", "404 Not Found (not 403)", "Pass"],
+      ["TC07", "Detection", "POST /detect twice for the same upload", "One stored result; all read endpoints keep working", "Pass"],
+      ["TC08", "Verdict bands", "Scores at and around 0.3, 0.5 and 0.7", "REAL / UNCERTAIN / FAKE exactly as specified", "Pass"],
+      ["TC09", "Background jobs", "Cancel a running video job", "Job stops early; no result stored", "Pass"],
+      ["TC10", "Background jobs", "Other API requests while a video scan runs", "Served without waiting for the scan", "Pass"],
+      ["TC11", "Provenance", "Change one byte of a C2PA-signed image", "Reported as changed since signing", "Pass"],
+      ["TC12", "Provenance", "JPEG with GPS EXIF", "GPS presence reported; coordinates never returned", "Pass"],
+      ["TC13", "Feedback", "Export feedback from users with and without reuse consent", "Files and comments exported only for consenting users", "Pass"],
+      ["TC14", "Account", "Delete account", "Uploads, files, results and feedback removed; other users untouched", "Pass"],
+      ["TC15", "Identity", "Verify a government ID (accepted and rejected by the quality gate)", "ID upload file and row deleted in both cases", "Pass"],
+      ["TC16", "Exams", "Student opens the question list", "Answer key never included", "Pass"],
+      ["TC17", "Exams", "Flagged checks reach the exam's max_flags (synchronous and job paths)", "Attempt terminated on the server", "Pass"],
+      ["TC18", "Monitoring", "Identity matches but the frame scores as a deepfake", "Check is still flagged", "Pass"]],
+     [700, 1300, 2700, 2966, 1000]),
 
     ("h2", "Deployment"),
     ("p", "Figure 4.7 shows the production deployment. docker-compose.prod.yml runs a frontend container (nginx serving the "
@@ -616,9 +683,10 @@ BODY = [
     ("fig", "deploy", "Production deployment", 6.0),
 
     ("h2", "Project Timeline"),
-    ("p", "Figure 4.8 shows the implementation timeline reconstructed from the repository history (47 commits by the team); "
-          "work before the first commit, such as the literature survey and the first CIFAKE model, is shown hatched because "
-          "its exact dates were not recorded."),
+    ("p", "Figure 4.8 shows the implementation phases recorded in the repository history (47 commits by the team between "
+          "3 September and 19 October). Earlier work, such as the problem definition, the literature survey and the first "
+          "CIFAKE image model, was done before the repository was created; its dates were not recorded, so it is not drawn "
+          "rather than drawn with guessed dates."),
     ("fig", "gantt", "Implementation timeline", 6.2),
 
     # =========================================================================================== 5
@@ -638,7 +706,7 @@ BODY = [
 
     ("h2", "Results"),
     ("h3", "Image Detection: Seen Versus Unseen Sources"),
-    ("p", "Figure 5.1 and Table 5.1 contain the central result of this work. On seen sources every configuration is "
+    ("p", "Figure {fig:c_image_seen_unseen} and Table 5.1 contain the central result of this work. On seen sources every configuration is "
           "near perfect. On unseen generators the deployed ensemble catches only 27.3% of fakes, and AUC drops to 0.665."),
     ("fig", "c_image_seen_unseen", "Image detection by training status of the source (threshold 0.5)", 6.2),
     ("tab", "Image detection by training status of the source",
@@ -648,17 +716,43 @@ BODY = [
       ["ConvNeXt", "Unseen", "50.2", "12.0", "98.7", "0.665"], ["CLIP", "Unseen", "49.7", "20.6", "86.7", "0.640"],
       ["Mean of both", "Unseen", "48.5", "10.9", "96.3", "0.670"], ["Max (deployed)", "Unseen", "53.2", "27.3", "86.0", "0.665"]],
      [1900, 1100, 1400, 1500, 1700, 1066]),
-    ("p", "Per source (Figure 5.2), the deployed system catches 30.7% of GenImage Stable Diffusion images, 20.0% of "
+    ("p", "Per source (Figure {fig:c_unseen_sources}), the deployed system catches 30.7% of GenImage Stable Diffusion images, 20.0% of "
           "Midjourney and 26.0% of BigGAN images, and reaches 54.3% accuracy on OpenFake. All eight photorealistic ChatGPT "
           "\"everyday\" images were labelled REAL with more than 99.99% confidence. The maximum rule trades specificity for "
           "recall: compared with the mean it raises unseen-fake recall from 10.9% to 27.3% but lowers real-photo specificity "
-          "from 96.3% to 86.0%; on the portrait-app genre it keeps CLIP's 93.3%. Figure 5.3 shows the ROC and "
+          "from 96.3% to 86.0%; on the portrait-app genre it keeps CLIP's 93.3%. Figure {fig:@roc_image} shows the ROC and "
           "precision-recall curves over all 6,532 images."),
+    ("p", "Figure {fig:c_confusion} shows the confusion matrices of the deployed detectors. For images, the binary matrix at "
+          "threshold 0.5 is pooled over all 6,532 evaluation files; almost all of the 1,026 missed fakes come from the unseen "
+          "generators. The three-way matrix shows how the UNCERTAIN band absorbs borderline scores (271 files). The video "
+          "matrices are for the epoch-11 model on 310 unseen clips: at threshold 0.525 it separates real from fake reasonably "
+          "well, but under the original raw-score band 304 of 310 clips were UNCERTAIN, which is the problem the Platt "
+          "calibration in Section 3.3.2 solves."),
+    ("fig", "c_confusion", "Confusion matrices of the image ensemble (6,532 files) and the epoch-11 video model (310 clips)", 6.2),
     ("fig", "c_unseen_sources", "Share of AI images caught per unseen source (deployed max ensemble)", 5.6),
     ("fig", "@roc_image", "ROC and precision-recall curves of the image sub-models and ensembles (6,532 images)", 6.2),
 
+    ("h3", "Score Distributions, Threshold Sensitivity and Reliability"),
+    ("p", "Figure {fig:@score_hist} shows how the deployed ensemble's fake probability is distributed for real and fake "
+          "images. Both classes pile up at the extremes: most real images score close to 0 and most fakes close to 1, so the "
+          "UNCERTAIN band between 0.3 and 0.7 holds few files. The problem is the several hundred fakes, almost all from "
+          "unseen generators, that also score close to 0. Those images are not borderline; the model is confidently wrong "
+          "about them."),
+    ("fig", "@score_hist", "Distribution of the deployed image ensemble's fake probability by true class (6,532 images)", 5.4),
+    ("p", "This is also why changing the decision threshold does not rescue the unseen generators (Figure "
+          "{fig:@thresh}). Balanced accuracy of the deployed maximum rule stays between about 0.80 and 0.82 for every "
+          "threshold from 0.05 to 0.95, and at the chosen 0.5 it is already near its best. ConvNeXt alone does slightly better "
+          "at very low thresholds because a low threshold also flags fakes that it scores only a little above zero. The 0.5 threshold was not "
+          "tuned on the evaluation data, so these numbers are not optimistic in that respect."),
+    ("fig", "@thresh", "Balanced accuracy of each image configuration against the decision threshold", 5.6),
+    ("p", "The reliability diagram (Figure {fig:@reliability}) compares predicted fake probability with the observed share "
+          "of fakes in ten bins. Images scored near 0 are in fact fake about 23% of the time, and images scored 0.8–0.9 only "
+          "about 61% of the time, so the raw ensemble is over-confident at both ends (ECE 0.159 in this run). This is the "
+          "measurement that motivated showing a separately calibrated confidence next to the raw one (Section 3.3.4)."),
+    ("fig", "@reliability", "Reliability diagram of the raw image ensemble score", 3.3),
+
     ("h3", "Face-Swap Check in the Image Pipeline"),
-    ("p", "Figure 5.4 compares the face-swap check with the whole-image models. On frames from 356 held-out research "
+    ("p", "Figure {fig:c_faceswap} compares the face-swap check with the whole-image models. On frames from 356 held-out research "
           "videos the face check reaches AUC 0.95 against 0.61 for the image ensemble, and at a 5% false-alarm budget it "
           "catches 78% of fake frames against 12%. On inswapper swaps of 80 CelebA photos it reaches 0.859 against 0.659. "
           "On RWFS, 500 swaps from eight real online face-swap apps, the first version was near chance (0.617), which "
@@ -673,18 +767,23 @@ BODY = [
           "84.0% of real originals real. Inspecting the face crops explained the two consumer-app misses: in the Akool clip "
           "the Haar cascade locks onto a wall poster and a wrist, and the Magic Hour clip is stored rotated by 90° with no "
           "rotation flag, so no face is found in any frame. Three preprocessing fixes were tested on all 300 RTFS clips "
-          "(Figure 5.5): a rotation fallback that only activates when no frame has a face (safe, but it never activated on "
+          "(Figure {fig:c_video_variants}): a rotation fallback that only activates when no frame has a face (safe, but it never activated on "
           "RTFS), a two-cascade consensus (removes the poster detections but also good ones, AUC 0.890) and wider 35% padding "
           "(AUC 0.849, 5.3 points lower specificity). The existing crop geometry is close to a local optimum, so further "
           "gains needed retraining."),
     ("fig", "c_video_variants", "Video preprocessing variants on 300 unseen RTFS clips", 6.0),
+    ("p", "Figure {fig:@video_roc} shows the ROC and precision-recall curves of the epoch-11 model on the same 310 unseen "
+          "clips (AUC 0.892, average precision 0.882). The curve rises steeply at low false-positive rates: about 70% of "
+          "fakes can be caught while flagging about 10% of real videos, which is the operating region the calibrated band "
+          "later made reachable."),
+    ("fig", "@video_roc", "ROC and precision-recall curves of Video Model v1 (epoch 11) on 310 unseen clips", 6.2),
     ("p", "The raw scores of the epoch-11 model sat almost entirely between 0.2 and 0.7, so the original ±0.2 band around "
           "0.525 made 294 of 300 RTFS videos UNCERTAIN. Platt rescaling of the mean logit, fitted on a grouped split, raised "
-          "the share of decided RTFS test videos from 1.7% to 75% with 91.1% accuracy among them. Figure 5.6 shows why the "
+          "the share of decided RTFS test videos from 1.7% to 75% with 91.1% accuracy among them. Figure {fig:c_video_res} shows why the "
           "resolution guard was added: AUC falls from 0.923 at 1080p to 0.729 at 240 px, and FakeAVCeleb's 224 px clips are "
           "at chance; without the guard the rescaling produced confident wrong verdicts on such clips."),
     ("fig", "c_video_res", "Video ROC-AUC against the short side of the video", 4.6),
-    ("p", "Round 4 fine-tuning (Figure 5.7) raised the AUC on 356 local held-out videos from 0.765 to 0.961, reduced real "
+    ("p", "Round 4 fine-tuning (Figure {fig:c_video_r4}) raised the AUC on 356 local held-out videos from 0.765 to 0.961, reduced real "
           "videos wrongly flagged FAKE from 21 to 8 of 185 and increased fakes caught from 82 to 114 of 171; on held-out DFD "
           "and phone actors the AUC rose from 0.845 to 0.977. Fully AI-generated video (five Sora/Kling clips) is out of "
           "scope: none were caught, and the PDF report says so."),
@@ -692,7 +791,7 @@ BODY = [
 
     ("h3", "Audio Detection"),
     ("p", "The audio model was assessed on the team's six held-out acceptance sets during fine-tuning and passed five of "
-          "the six, including 10 of 10 genuine clips from previously unseen LibriSpeech speakers (Figure 5.8). On a stress "
+          "the six, including 10 of 10 genuine clips from previously unseen LibriSpeech speakers (Figure {fig:c_audio}). On a stress "
           "test with one clip from each of the 59 VCC 2020 voice-conversion systems, the previous model version scored 30/59 "
           "(50.8%, essentially chance); adding a system-split VCC source raised this to 98.3%. Because about 40 of those "
           "systems were used in training, the figure is partly a measure of fit. These results come from the training "
@@ -702,14 +801,20 @@ BODY = [
 
     ("h3", "Robustness to Everyday Degradation"),
     ("p", "Common sharing pipelines leave the image ensemble almost unaffected on seen sources: screenshot, WhatsApp-style "
-          "(longest side 1600 px, JPEG quality 65) and WebP processing all keep AUC at 0.99 or above. Figure 5.9 shows the "
+          "(longest side 1600 px, JPEG quality 65) and WebP processing all keep AUC at 0.99 or above. Figure {fig:c_img_robust} shows the "
           "exceptions. CLIP raises false alarms on real photographs under faint noise and compression: the ensemble's "
           "real-photo specificity falls from 95.6% clean to 87.8% at JPEG quality 90, 71.1% at noise σ = 5 and 62.2% at "
           "quality 10, while ConvNeXt alone stays between 96.7% and 98.9% in all 21 settings. Under heavy blur (σ = 3) the "
           "opposite happens: ConvNeXt catches only 50% of fakes and the ensemble recovers to 83.3% because CLIP still detects "
           "them. The maximum rule therefore inherits CLIP's false alarms and ConvNeXt's misses under different degradations."),
     ("fig", "c_img_robust", "Image robustness on seen sources: specificity and recall under degradation", 6.2),
-    ("p", "Video was far more fragile (Figure 5.10, epoch-11 weights, 30 clips). At JPEG quality 10 every degraded fake was "
+    ("p", "Figure {fig:@rob_heatmap} gives the complete picture for all 21 settings, separately for seen and unseen "
+          "sources. Seen-source AUC stays at 0.91 or above in every setting, while unseen-source AUC stays between 0.50 and "
+          "0.62 whatever is done to the image: degradation does not create the generalisation gap, it only moves scores "
+          "around inside it. The unseen fake-recall column rises under heavy JPEG compression (0.17 clean to 0.47 at quality "
+          "10) only because compression pushes every score towards FAKE, which the falling real-specificity columns confirm."),
+    ("fig", "@rob_heatmap", "Deployed image ensemble under all 21 robustness settings (AUC, fake recall and real specificity, seen and unseen sources)", 5.6),
+    ("p", "Video was far more fragile (Figure {fig:c_vid_robust}, epoch-11 weights, 30 clips). At JPEG quality 10 every degraded fake was "
           "labelled REAL; blur σ = 3 and 4× down-scaling pushed AUC below 0.5, meaning the score pointed the wrong way; "
           "WhatsApp-style processing alone dropped AUC to 0.61. This finding directly motivated the degradation augmentation "
           "used in round 4; the robustness study has not yet been repeated for round 4."),
@@ -725,7 +830,7 @@ BODY = [
           "9 of the 1,026 AI images the ensemble misses declare themselves AI-generated. The declaration survived a "
           "byte-for-byte copy in 8 of 8 cases and every re-encode we tried in 0 of 8. ELA statistics separate real from fake "
           "with AUC 0.53–0.75 on most sources but 0.995 on DeepDetect, which reveals a JPEG-history shortcut in that dataset."),
-    ("p", "**Calibration.** Both detectors are mis-calibrated in raw form (Figure 5.11). Temperature scaling lowered the "
+    ("p", "**Calibration.** Both detectors are mis-calibrated in raw form (Figure {fig:c_calibration}). Temperature scaling lowered the "
           "image ECE from 0.158 to 0.056 and the video ECE from 0.254 to 0.059; the video Platt fit lowered pooled ECE on a "
           "separate 161-video test split from 0.161 to 0.078. The temperature-scaled values were measured on the fitting "
           "scores and are therefore optimistic."),
@@ -733,7 +838,7 @@ BODY = [
 
     ("h3", "Fairness Across Demographic Groups"),
     ("p", "To check whether genuine photos of some groups are wrongly flagged more often, 600 real UTKFace portraits were "
-          "scored, 60 per gender-race group (Figure 5.12). The deployed ensemble's specificity is 94.8% overall but ranges "
+          "scored, 60 per gender-race group (Figure {fig:c_fairness}). The deployed ensemble's specificity is 94.8% overall but ranges "
           "from 90.0% to 100% across groups; ConvNeXt alone spans 96.7–100% and CLIP alone 91.7–100%. CLIP's two weakest "
           "groups are exactly the ensemble's two weakest, pointing again to CLIP as the source of false alarms. With 60 images "
           "per group the ranking of specific groups is noisy; the size of the spread and the sub-model it comes from are the "
@@ -743,31 +848,31 @@ BODY = [
     ("h3", "Identity Verification"),
     ("p", "On 1,000 LFW DevTest pairs scored with the deployed pipeline, same-person similarity averaged 0.720 (σ 0.201) and "
           "different-person similarity 0.029 (σ 0.160), with ROC-AUC 0.974. At the chosen threshold of 0.44 the accuracy is "
-          "96.5% with a 0.4% false-accept rate and a 6.6% false-reject rate (Figures 5.13 and 5.14). LFW consists of frontal, "
+          "96.5% with a 0.4% false-accept rate and a 6.6% false-reject rate (Figures {fig:@identity_hist} and {fig:c_identity}). LFW consists of frontal, "
           "well-lit press photographs; webcam enrolment under poor lighting will plausibly overlap more, so this is a "
           "data-grounded starting point, not a guaranteed production error rate."),
     ("fig", "@identity_hist", "Distribution of cosine similarity for same-person and different-person LFW pairs", 5.0),
     ("fig", "c_identity", "Identity matching at threshold 0.44 on LFW", 4.6),
 
     ("h3", "The Working System"),
-    ("p", "Figures 5.15 to 5.24 show the deployed application processing real files through the live API on CPU, captured "
-          "on the final build. The home page (Figure 5.15) introduces the examination flow; the verify page (Figure 5.16) "
-          "accepts all three media types; history and dashboard (Figures 5.17 and 5.18) show only the signed-in user's scans."),
+    ("p", "Figures {fig:@home} to {fig:@proctorlens} show the deployed application processing real files through the live API on CPU, captured "
+          "on the final build. The home page (Figure {fig:@home}) introduces the examination flow; the verify page (Figure {fig:@verify}) "
+          "accepts all three media types; history and dashboard (Figures {fig:@history} and {fig:@dashboard}) show only the signed-in user's scans."),
     ("fig", "@home", "Home page", 6.0),
     ("fig", "@verify", "Verify page: upload of an image, video or audio file", 6.0),
     ("fig", "@history", "Scan history (owner-only)", 6.0),
     ("fig", "@dashboard", "Dashboard built from real counts only", 6.0),
-    ("p", "Figure 5.19 shows a photorealistic ChatGPT image, one of the documented blind spots. The models call it REAL, but "
+    ("p", "Figure {fig:@chatgpt_top} shows a photorealistic ChatGPT image, one of the documented blind spots. The models call it REAL, but "
           "its C2PA credentials declare AI generation, so the interface shows the provenance conflict and switches the "
           "headline to the warning style; Grad-CAM is faded because ConvNeXt's own fake probability is low and the check "
-          "that drove the score has no map. Figure 5.20 shows a portrait-app image whose stored verdict is UNCERTAIN (58%); "
+          "that drove the score has no map. Figure {fig:@portrait_top} shows a portrait-app image whose stored verdict is UNCERTAIN (58%); "
           "its embedded metadata declares AI generation, so the same conflict display applies."),
     ("fig", "@chatgpt_top", "Result for a ChatGPT-generated photograph: REAL by the models, AI-declared by provenance", 5.4),
     ("fig", "@portrait_top", "Result for a portrait-app image: UNCERTAIN by the models, AI-declared by metadata", 5.4),
-    ("p", "Figure 5.21 shows a face-swap video (an RTFS inswapper clip; RTFS was part of round-4 training, so this is a "
+    ("p", "Figure {fig:@video_explain} shows a face-swap video (an RTFS inswapper clip; RTFS was part of round-4 training, so this is a "
           "demonstration, not evidence of generalisation): the calibrated probability is 99.8%, sixteen of sixteen frames had "
           "a detected face, and the per-frame bars, the exact crops and Grad-CAM on the three most suspicious frames are "
-          "shown. Figure 5.22 shows an audio scan with the per-window score and the time-saliency curve over the spectrogram; "
+          "shown. Figure {fig:@audio_explain} shows an audio scan with the per-window score and the time-saliency curve over the spectrogram; "
           "the clip's ground truth is not known, so it illustrates the output only."),
     ("fig", "@video_explain", "Video result: per-frame scores, face crops and Grad-CAM on the most suspicious frames", 5.4),
     ("fig", "@audio_explain", "Audio result: per-window score and input-gradient saliency over the spectrogram", 5.4),
@@ -836,7 +941,7 @@ BODY = [
           "explicit conflict notes, calibrated confidence and PDF reports. ProctorLens extends the same components to "
           "identity-verified, continuously monitored online examinations with server-side enforcement."),
     ("p", "All the objectives set in Chapter 1 were met. The system is a complete, tested and deployable application with "
-          "owner-only privacy, upload validation, rate limiting, 512 passing automated tests and a production configuration. "
+          "owner-only privacy, upload validation, rate limiting, 530 passing automated tests and a production configuration. "
           "The evaluation was as important as the implementation: it showed near-perfect accuracy on familiar data (98.4%) "
           "and weak generalisation to unseen generators (53.2%), a severe video fragility under compression that guided the "
           "round-4 fine-tune (held-out AUC 0.765 to 0.961), the value of provenance exactly where detectors fail, and a "
@@ -890,7 +995,118 @@ SHOTS = {
     "audio_explain": ("report_audio_explain.png", (290, 345, 1150, 1410)),
     "pdf_video": ("pdf_video_p1.png", None),
 }
+SHOTS.update({
+    "login": ("login.png", None), "about": ("about.png", None),
+    "photo_top": ("report_photo.png", (295, 345, 1146, 1136)),
+    "pdf_chatgpt_p1": ("pdf_chatgpt_p1.png", None), "pdf_chatgpt_p2": ("pdf_chatgpt_p2.png", None),
+    "pdf_video_p2": ("pdf_video_p2.png", None),
+})
 EXISTING = {
     "roc_image": "backend/eval/results/image/roc_pr.png",
     "identity_hist": "backend/eval/results/identity/similarity_distributions.png",
+    "score_hist": "backend/eval/results/image/score_hist.png",
+    "thresh": "backend/eval/results/image/threshold_sweep.png",
+    "reliability": "backend/eval/results/image/reliability.png",
+    "video_roc": "backend/eval/results/video/roc_pr.png",
+    "rob_heatmap": "backend/eval/results/robustness/heatmap.png",
 }
+
+# ============================================================================================ appendices
+# ("app", letter, title) starts an appendix; ("ah", text) is an unnumbered sub-heading; ("cmd", [lines]) is a command
+# block; ("code", path, spec, caption) is a verbatim listing extracted from the repository at build time.
+APPENDICES = [
+    ("app", "A", "Installation and User Guide"),
+    ("p", "This appendix explains how to install and run the system from the project repository and how to use it. The "
+          "commands are the ones documented in the repository (README.md, CLAUDE.md and docs/DEPLOYMENT.md)."),
+    ("ah", "A.1  Prerequisites"),
+    ("bul", [
+        "Python 3.11 with the packages in backend/requirements.txt (PyTorch CPU build, FastAPI, OpenCLIP, Transformers, "
+        "facenet-pytorch, ONNX Runtime and others) installed in a virtual environment.",
+        "Node.js 20 and npm for the React frontend.",
+        "Optionally Docker Desktop (Windows) or Docker Engine with Compose (Linux) for containerised runs.",
+        "The model checkpoint files listed in models/CHECKSUMS.sha256. They are too large for git and are distributed "
+        "separately; the CLIP and wav2vec 2.0 backbones download automatically on first use.",
+    ]),
+    ("ah", "A.2  Obtaining and verifying the checkpoints"),
+    ("p", "If the checkpoints are hosted in a folder you control, the fetch script downloads each one and verifies its "
+          "SHA-256 checksum; a file with a wrong checksum is discarded rather than kept. The --check option only verifies "
+          "files that are already in place."),
+    ("cmd", ["python backend/scripts/fetch_checkpoints.py --base-url https://YOUR-HOST/truthlens-models/",
+             "python backend/scripts/fetch_checkpoints.py --check"]),
+    ("ah", "A.3  Running locally without Docker"),
+    ("p", "Start the backend from the backend folder, pointing it at the image checkpoints (Windows PowerShell shown; the "
+          "other checkpoints are found at their default paths):"),
+    ("cmd", ["cd backend",
+             "$env:IMAGE_MODEL_CHECKPOINT=\"../models/checkpoints/image/convnext_tiny_diversified_v2.pth\"",
+             "$env:CLIP_MODEL_CHECKPOINT=\"../models/checkpoints/image_clip/clip_head_round3_portrait_app.pth\"",
+             "$env:IMAGE_MODEL_DEVICE=\"cpu\"; $env:CLIP_MODEL_DEVICE=\"cpu\"",
+             "../.venv/Scripts/python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000"]),
+    ("p", "Then start the frontend in a second terminal. The development server runs at http://localhost:3000 and forwards "
+          "/api requests to the backend; the interactive API documentation is at http://localhost:8000/docs."),
+    ("cmd", ["cd frontend", "npm install", "npm run dev"]),
+    ("ah", "A.4  Running with Docker"),
+    ("p", "For development both services start with one command. For production, copy the example environment file, set "
+          "a long random signing key (the server refuses to start with the default one) and use the production compose "
+          "file, which serves the site through nginx with security headers and rate limits."),
+    ("cmd", ["docker-compose up --build",
+             "cp .env.example .env",
+             "python -c \"import secrets; print(secrets.token_urlsafe(48))\"   # paste as AUTH_SECRET_KEY in .env",
+             "docker compose -f docker-compose.prod.yml up -d --build",
+             "docker compose -f docker-compose.prod.yml ps"]),
+    ("ah", "A.5  Running the tests"),
+    ("p", "The full suite needs the checkpoints; the second command is the subset that CI runs without any model files."),
+    ("cmd", ["cd backend", "../.venv/Scripts/python.exe -m pytest", "../.venv/Scripts/python.exe -m pytest -m \"not models\""]),
+    ("ah", "A.6  Verifying a file with TruthLens"),
+    ("num", [
+        "Sign up with a name, email, password (at least 8 characters) and account type, or log in (Figure {fig:@login}).",
+        "Open Verify and choose an image, video or audio file of up to 100 MB. Images and audio are scanned immediately; a "
+        "video scan shows a progress bar with its stage and can be cancelled.",
+        "Read the result card: the verdict (Authentic, Uncertain or Manipulated), the confidence and the calibrated "
+        "confidence, the model used and the processing time (Figure {fig:@photo_top}).",
+        "Open Provenance and Metadata to see Content Credentials, embedded metadata and watermark results; a red conflict "
+        "note appears when the file declares itself AI-generated but the models did not flag it.",
+        "Open the explanation to see the Grad-CAM heat-map (image), per-frame scores and crops (video) or per-window scores "
+        "and the saliency curve (audio).",
+        "Answer \"Was this result correct?\" if you wish, and choose Download PDF Report for a shareable forensic report "
+        "(Figures {fig:@pdf_chatgpt_p1} and {fig:@pdf_chatgpt_p2}).",
+        "Find every past scan under History and Reports, and the totals under Dashboard. Deleting your account from the "
+        "account menu removes all of your files, results and reports.",
+    ]),
+    ("ah", "A.7  Using ProctorLens"),
+    ("p", "**Organisation account.** Sign up with the organisation account type and open the Admin page. The Setup tab "
+          "shows the private join code to give to students (it can be regenerated) and the roster; the Exams tab creates an "
+          "exam with its pass mark and flag limit and adds multiple-choice questions with their correct answers; the Activity "
+          "tab lists attempts with their status, score and flags, and each session report can be downloaded as a PDF."),
+    ("p", "**Student account.** Open ProctorLens, enter the organisation's join code and pick an exam. Before every attempt "
+          "the student gives consent, photographs a government ID and takes a live selfie; the attempt starts only if the "
+          "two faces match. During the exam the camera stays on and periodic checks run in the background; if the number of "
+          "flagged checks reaches the exam's limit, the server ends the attempt. Otherwise the attempt is scored when the "
+          "student submits it."),
+
+    ("app", "B", "Selected Source Code"),
+    ("p", "The listings below are copied verbatim from the repository by the report build script, so they always match the "
+          "submitted code. They show the parts of the system on which the verdicts depend; the complete source, tests and "
+          "evaluation scripts are in the project repository."),
+    ("code", "backend/app/services/image/detector.py",
+     ("between", "convnext_fake_probability = convnext_prediction", "verdict = _verdict(fake_probability)"),
+     "Listing B.1: Image ensemble: maximum of ConvNeXt, CLIP and the face-swap check"),
+    ("code", "backend/app/services/image/detector.py", ("func", "_verdict"), "Listing B.2: Verdict banding around the threshold"),
+    ("code", "backend/app/services/calibration.py", ("func", "calibrate"),
+     "Listing B.3: Temperature and Platt calibration"),
+    ("code", "backend/app/services/audio/model_v1/optimized.py", ("func", "_build_windows"),
+     "Listing B.4: Audio windowing (up to six 4-second windows)"),
+    ("code", "backend/app/services/identity/detector.py", ("func", "_cosine_similarity"),
+     "Listing B.5: Cosine similarity of face embeddings"),
+    ("code", "backend/app/services/exams/enforcement.py", ("func", "enforce_flag_threshold"),
+     "Listing B.6: Server-side termination of an exam attempt at the flag limit"),
+
+    ("app", "C", "Additional Screenshots and Sample Report"),
+    ("p", "These screenshots were captured from the final build processing real files through the live API, in the same "
+          "session as those in Section 5.2. The sample report pages are the PDF generated by the system for the ChatGPT "
+          "photograph of Figure {fig:@chatgpt_top}, and the second page of the video report."),
+    ("fig", "@login", "Login page", 4.6),
+    ("fig", "@photo_top", "Result card for a genuine photograph: Authentic, no provenance metadata, explanation collapsed", 3.5),
+    ("fig", "@pdf_chatgpt_p1", "Generated PDF report for the ChatGPT photograph, page 1: verdict and technical details", 6.2),
+    ("fig", "@pdf_chatgpt_p2", "Generated PDF report for the ChatGPT photograph, page 2: explanation and provenance conflict note", 6.2),
+    ("fig", "@pdf_video_p2", "Generated PDF report for the face-swap video, page 2: per-frame explanation", 6.2),
+]

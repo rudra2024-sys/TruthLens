@@ -69,7 +69,7 @@ def cite(text: str) -> str:
 
 def walk_text(block):
     kind = block[0]
-    if kind in ("p", "h1", "h2", "h3"):
+    if kind in ("p", "h1", "h2", "h3", "ah"):
         yield block[1]
     elif kind in ("bul", "num"):
         yield from block[1]
@@ -82,15 +82,34 @@ def walk_text(block):
             yield from r
 
 
-for b in RC.BODY:
+ALL_BLOCKS = RC.BODY + getattr(RC, "APPENDICES", [])
+for b in ALL_BLOCKS:
     for t in walk_text(b):
         collect(t)
+
+# figure numbers ("chapter.n") by key, so the text can say {fig:key} instead of a hard-coded number
+FIG_NO: dict[str, str] = {}
+_ch, _lab, _fn = 0, "", 0
+for b in ALL_BLOCKS:
+    if b[0] == "h1":
+        _ch, _fn = _ch + 1, 0
+        _lab = str(_ch)
+    elif b[0] == "app":
+        _lab, _fn = b[1], 0
+    elif b[0] == "fig":
+        _fn += 1
+        FIG_NO[b[1]] = f"{_lab}.{_fn}"
+FIGREF = re.compile(r"\{fig:([@a-z0-9_]+)\}")
+
+
+def figref(text: str) -> str:
+    return FIGREF.sub(lambda m: FIG_NO[m.group(1)], text)
 
 
 # ------------------------------------------------------------------------------------------- run helpers
 def add_runs(p, text: str, size: int | None = None, bold_all=False):
     """**bold** and *italic* markup -> runs."""
-    text = cite(text)
+    text = cite(figref(text))
     for tok in re.split(r"(\*\*[^*]+\*\*|\*[^*]+\*)", text):
         if not tok:
             continue
@@ -147,6 +166,7 @@ i0, _ = find("Surname Firstname")
 for k in range(4):
     set_text_keep_format(doc.paragraphs[i0 + k], names[k])
 set_text_keep_format(find("Dr. / Prof. Supervisor Name")[1], RC.GUIDE)
+set_text_keep_format(find("2025-2026")[1], RC.YEAR)
 # the three-line title pushes the cover onto a second page: drop two of the empty spacer paragraphs above the address
 iD, _ = find("Department of Information Technology")
 spacers = [p for p in doc.paragraphs[iD - 5:iD] if not p.text.strip() and not p._p.findall(".//" + qn("w:drawing"))]
@@ -225,12 +245,16 @@ def new_num(abstract_id: int) -> int:
     return nid
 
 
+label = ""  # caption prefix: chapter number, or the appendix letter
+
+
 def heading(level: int, text: str):
-    global chapter, fig_n, tab_n
+    global chapter, fig_n, tab_n, label
     p = doc.add_paragraph(style=f"Heading {level}")
     set_ppr(p, f'<w:pStyle w:val="Heading{level}"/><w:numPr><w:ilvl w:val="{level - 1}"/><w:numId w:val="2"/></w:numPr>')
     if level == 1:
         chapter += 1
+        label = str(chapter)
         fig_n = tab_n = 0
         p.add_run().add_break()
     p.add_run(text)
@@ -266,19 +290,23 @@ def image_path(key: str) -> Path:
     return HERE / "figures" / f"{key}.png"
 
 
+# per-figure height caps (inches), tuned with work/gaps.py so tall screenshots pair up instead of leaving half pages
+FIG_MAX_H: dict[str, float] = {"@pdf_chatgpt_p1": 8.3, "@pdf_chatgpt_p2": 8.3, "@pdf_video_p2": 8.3, "@roc_image": 2.3, "@video_explain": 7.4, "@audio_explain": 4.5, "@pdf_video": 4.1}
+
+
 def figure(key: str, caption: str, width_in: float):
     global fig_n
     fig_n += 1
     path = image_path(key)
     w, h = Image.open(path).size
-    max_h = 7.9
+    max_h = FIG_MAX_H.get(key, 6.0)  # tall figures that will not fit below text leave half-empty pages
     if width_in * h / w > max_h:
         width_in = max_h * w / h
     p = doc.add_paragraph()
     set_ppr(p, '<w:keepNext/><w:spacing w:before="120" w:after="60" w:line="240" w:lineRule="auto"/><w:jc w:val="center"/>')
     p.add_run().add_picture(str(path), width=Inches(width_in))
     c = doc.add_paragraph(style="Figure Caption")
-    r = c.add_run(f"Figure {chapter}.{fig_n}: "); r.bold = True
+    r = c.add_run(f"Figure {label}.{fig_n}: "); r.bold = True
     add_runs(c, caption)
 
 
@@ -287,7 +315,7 @@ def table(caption: str, header, rows, widths):
     tab_n += 1
     c = doc.add_paragraph(style="Table Caption")
     set_ppr(c, '<w:pStyle w:val="TableCaption"/><w:keepNext/>')
-    r = c.add_run(f"Table {chapter}.{tab_n}: "); r.bold = True
+    r = c.add_run(f"Table {label}.{tab_n}: "); r.bold = True
     add_runs(c, caption)
     t = doc.add_table(rows=1 + len(rows), cols=len(header))
     tbl = t._tbl
@@ -354,10 +382,102 @@ def equation(nodes, label: str):
     p._p.append(parse_xml(f'<w:r {nsdecls("w")}><w:tab/><w:t>({label})</w:t></w:r>'))
 
 
+def appendix(letter: str, title: str):
+    """Appendix title: unnumbered, but listed in the Contents (template style 'Front Matter Title (in TOC)')."""
+    global label, fig_n, tab_n
+    label, fig_n, tab_n = letter, 0, 0
+    p = doc.add_paragraph(style="Front Matter Title (in TOC)")
+    set_ppr(p, '<w:pStyle w:val="FrontMatterTitleinTOC"/><w:pageBreakBefore/>')
+    p.add_run(f"Appendix {letter}: {title}")
+
+
+def subhead(text: str):
+    p = doc.add_paragraph()
+    set_ppr(p, '<w:keepNext/><w:spacing w:before="240" w:after="120"/>')
+    r = p.add_run(text)
+    r.bold = True
+    r.font.size = docx.shared.Pt(13)
+
+
+def source_excerpt(rel: str, spec) -> str:
+    """Verbatim excerpt of a project file: ("func", name) for one function or method (via ast), or
+    ("between", start_text, end_text) for the lines from the first one containing start_text to the next one
+    containing end_text, inclusive."""
+    import ast
+    import textwrap
+    src = (ROOT / rel).read_text(encoding="utf-8")
+    lines = src.splitlines()
+    if spec[0] == "func":
+        for node in ast.walk(ast.parse(src)):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == spec[1]:
+                start = (node.decorator_list[0].lineno if node.decorator_list else node.lineno) - 1
+                return textwrap.dedent(NL.join(lines[start:node.end_lineno]))
+        raise KeyError(spec)
+    i = next(n for n, line in enumerate(lines) if spec[1] in line)
+    j = next(n for n, line in enumerate(lines[i + 1:], i + 1) if spec[2] in line)
+    return textwrap.dedent(NL.join(lines[i:j + 1]))
+
+
+NL = chr(10)
+
+
+def _mono_box(lines, size: float):
+    t = doc.add_table(rows=1, cols=1)
+    tbl = t._tbl
+    tbl.remove(tbl.find(qn("w:tblPr")))
+    tbl.insert(0, parse_xml(
+        f'<w:tblPr {nsdecls("w")}><w:tblW w:w="8666" w:type="dxa"/><w:tblBorders>'
+        '<w:top w:val="single" w:sz="4" w:color="BFBFBF"/><w:left w:val="single" w:sz="4" w:color="BFBFBF"/>'
+        '<w:bottom w:val="single" w:sz="4" w:color="BFBFBF"/><w:right w:val="single" w:sz="4" w:color="BFBFBF"/>'
+        '</w:tblBorders><w:tblCellMar><w:top w:w="80" w:type="dxa"/><w:left w:w="120" w:type="dxa"/>'
+        '<w:bottom w:w="80" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tblCellMar></w:tblPr>'))
+    tbl.find(qn("w:tblGrid")).find(qn("w:gridCol")).set(qn("w:w"), "8666")
+    cell = t.rows[0].cells[0]
+    cell._tc.insert(0, parse_xml(f'<w:tcPr {nsdecls("w")}><w:tcW w:w="8666" w:type="dxa"/>'
+                                 '<w:shd w:val="clear" w:color="auto" w:fill="F4F4F2"/></w:tcPr>'))
+    for n, line in enumerate(lines):
+        p = cell.paragraphs[0] if n == 0 else cell.add_paragraph()
+        set_ppr(p, '<w:spacing w:before="0" w:after="0" w:line="240" w:lineRule="auto"/>')
+        r = p.add_run(line if line else " ")
+        r.font.name = "Consolas"
+        r.font.size = docx.shared.Pt(size)
+        r._r.get_or_add_rPr().get_or_add_rFonts().set(qn("w:hAnsi"), "Consolas")
+    sp = doc.add_paragraph()
+    set_ppr(sp, '<w:spacing w:after="120"/>')
+
+
+def code(rel: str, spec, caption: str):
+    cap = doc.add_paragraph()
+    set_ppr(cap, '<w:keepNext/><w:spacing w:before="120" w:after="60"/>')
+    r = cap.add_run(f"{caption} ")
+    r.bold = True
+    r = cap.add_run(f"({rel})")
+    r.italic = True
+    r.font.size = docx.shared.Pt(10)
+    _mono_box(source_excerpt(rel, spec).split(NL), 8.5)
+
+
+def cmd(lines):
+    _mono_box(lines, 9)
+
+
 # ------------------------------------------------------------------------------------------- render body
-for b in RC.BODY:
+def render(blocks):
+    for b in blocks:
+        render_one(b)
+
+
+def render_one(b):
     k = b[0]
-    if k == "h1":
+    if k == "app":
+        appendix(b[1], b[2])
+    elif k == "ah":
+        subhead(b[1])
+    elif k == "code":
+        code(b[1], b[2], b[3])
+    elif k == "cmd":
+        cmd(b[1])
+    elif k == "h1":
         heading(1, b[1])
     elif k == "h2":
         heading(2, b[1])
@@ -378,6 +498,9 @@ for b in RC.BODY:
     else:
         raise ValueError(k)
 
+
+render(RC.BODY)
+
 # --- references (template style: ListParagraph, "[n]" numbering)
 p = doc.add_paragraph(style="Front Matter Title (in TOC)")
 set_ppr(p, '<w:pStyle w:val="FrontMatterTitleinTOC"/><w:pageBreakBefore/>')
@@ -386,6 +509,8 @@ for key in ORDER:
     p = doc.add_paragraph(style="List Paragraph")
     p._p.insert(0, copy.deepcopy(ref_ppr))
     p.add_run(REFS[key])
+
+render(getattr(RC, "APPENDICES", []))
 
 # --- ask Word to refresh the TOC / list of figures / list of tables on open
 settings = doc.settings.element
