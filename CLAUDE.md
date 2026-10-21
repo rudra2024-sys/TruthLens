@@ -28,16 +28,14 @@ tl/
 │           ├── video/detector.py    → calls video/backend.py (swappable; default: model_v1/optimized.py)
 │           ├── audio/detector.py    → calls services/models/model_client.py → AASIST (ONNX)
 │           ├── models/               pretrained model code (AASIST, MesoNet) + model_client.py
-│           ├── report/generator.py   real PDF generation (ReportLab), not a stub
-│           └── ml_pipeline.py        DEAD CODE — see §3
+│           └── report/generator.py   real PDF generation (ReportLab), not a stub
 ├── frontend/           The ACTIVE React/Vite frontend
 │   └── src/
 │       ├── App.jsx              the real router — THIS defines which pages are live
 │       ├── Home.jsx, Verify.jsx, History.jsx, Reports.jsx, About.jsx   live pages
 │       ├── Navigation.jsx, Footer.jsx    live layout chrome
-│       ├── api/client.js        the API client App.jsx actually imports and uses
-│       ├── client.js            DEAD CODE duplicate at src root — not imported anywhere
-│       └── pages/                DEAD CODE — entire directory unused, see §3
+│       └── api/client.js        the API client App.jsx actually imports and uses
+                                 (the old root-level client.js and the whole pages/ directory were deleted 2026-10-21, see §30)
 ├── models/             A SEPARATE, undeployed FastAPI microservice scaffold
 │                       ("TruthLense Real Model Inference Service"). Has its own
 │                       Dockerfile/requirements.txt but is NOT a service in docker-compose.yml
@@ -66,6 +64,7 @@ FastAPI app in `backend/app/main.py`, all routers mounted under `/api/v1`:
 |---|---|---|
 | `/api/v1/upload/` | POST | Upload a file (multipart), validates type/size, stores to disk + DB row |
 | `/api/v1/upload/{upload_id}` | GET | Fetch upload metadata |
+| `/api/v1/upload/by-hash/{sha256}` | GET | The caller's most recent finished scan of byte-identical content, else 404 (batch dedupe, section 30) |
 | `/api/v1/detect/{upload_id}` | POST | Run detection for an upload, dispatches by media_type |
 | `/api/v1/detect/{upload_id}/result` | GET | Fetch a previously-computed detection result |
 | `/api/v1/detect/{upload_id}/jobs` | POST | Start detection as a background job (202); idempotent (see section 13) |
@@ -257,20 +256,10 @@ instead of a bare crash — keep this when touching `main.py`.
   Model v1 needs a quick rollback.
 
 ### Placeholder / mock / dead code — do not wire these in
-- `backend/app/services/ml_pipeline.py` — a `LightweightMLPipeline` class with hardcoded,
-  fabricated weights (comment literally says "mimicking weights learned from backprop on
-  synthetic datasets"). **Not imported anywhere.** Dead code from an earlier phase.
-- `frontend/src/pages/*` (Analytics.jsx, AnalyticsPage.jsx, Dashboard.jsx, HistoryPage.jsx,
-  Models.jsx, ModelsPage.jsx, Scan.jsx, SettingsPage.jsx) — **none of these are imported by
-  `App.jsx`**. The entire `pages/` directory is currently dead/unreferenced.
-- `frontend/src/client.js` (root-level, distinct from `src/api/client.js`) — **now fully
-  dead**. Until the Phase 3 hardening pass (see git history), `Home.jsx`, `Verify.jsx`,
-  `History.jsx`, and `Reports.jsx` imported from this file instead of `src/api/client.js`,
-  which meant those four pages' requests never got the JWT `Authorization` header that
-  `src/api/client.js`'s axios interceptor attaches, and used a version of `friendlyError()`
-  that didn't handle array-shaped 422 validation errors. All four now import from
-  `src/api/client.js` (the superset). `client.js` itself was left in place rather than
-  deleted — flagged here per the "don't delete without flagging" rule.
+- **Deleted 2026-10-21 (section 30)**, after confirming nothing imported them: `backend/app/services/ml_pipeline.py`
+  (a `LightweightMLPipeline` with hardcoded, fabricated weights), the whole `frontend/src/pages/` directory, and the
+  root-level `frontend/src/client.js` duplicate. All were tracked in git, so they are recoverable from history
+  (commit `57b08fd` removed them). Sections 24/25 below still describe them as they were at the time.
 - `models/` (top-level microservice) and `legacy/` — see §1. Not part of the active request
   path.
 
@@ -374,8 +363,8 @@ connect otherwise (seen in this environment).
   and stale heuristic labels on Video-v1 PDFs. A mutation check (breaking each guarded behaviour on purpose)
   confirmed the tests fail when they should.
 - **CI:** `.github/workflows/ci.yml` — backend job (Python 3.11, `pytest -m "not models"`) and frontend job
-  (`npm ci && npm run build`; there is still no frontend test script). It has not been run on GitHub yet (verified
-  locally from a clean virtualenv only, which also caught that `requirements.txt` lacked the `greenlet` SQLAlchemy's async mode needs — now `sqlalchemy[asyncio]`). New backend features should come with tests in `backend/tests/`.
+  (`npm ci && npm run build`; there is still no frontend test script). It has run on GitHub since 2026-10-21 and is green
+  (section 30; it had been failing since commit `6fdedf1` (identity verification) on a dependency-install error, unnoticed). Earlier local checks from a clean virtualenv also caught that `requirements.txt` lacked the `greenlet` SQLAlchemy's async mode needs — now `sqlalchemy[asyncio]`). New backend features should come with tests in `backend/tests/`.
 - Older standalone scripts (`backend/test_image_detection.py`, `test_*_smoke.py`, `test_video_model_v1_*.py`,
   `test_blind_spot_checkpoints.py`, root `smoke_test.py`/`test_detection.py`, `frontend/smoke_test.py`,
   `models/test_image_pipeline.py`) are unchanged, are not collected by pytest (`testpaths = tests`), and are not in CI.
@@ -392,7 +381,7 @@ connect otherwise (seen in this environment).
 1. **ML model changes require explicit approval.** Do not retrain, swap architectures, change
    weights, change detection thresholds, integrate a new model (including the already-trained
    Wav2Vec2+LCNN audio model or any future model), or activate currently-dead model paths
-   (MesoNet, `ml_pipeline.py`) without the user explicitly asking for that specific change in
+   (MesoNet) without the user explicitly asking for that specific change in
    that conversation.
 2. **Existing working functionality must not be casually rewritten.** Prefer small, targeted
    fixes over rewrites. Before changing a file, understand how it's currently used (check
@@ -1277,3 +1266,36 @@ Additive; no model, weight, threshold or stored result changed (section 8 rule 1
   Authentic / 6 Uncertain / 3 Manipulated. Small, local, uncontrolled samples - a smoke test, not a benchmark.
 - Tests: `test_feedback_store.py`, `test_plain_language.py`, `test_batch_export.py`, plus additions to `test_admin.py`.
   Full suite 524 passed, 10 skipped (`-m "not models"`).
+
+---
+
+## 30. Batch dedupe, dead-code removal, CI repaired - 2026-10-21
+
+Additive / housekeeping; no model, weight, threshold or stored result changed (section 8 rule 1 untouched).
+
+- **Batch dedupe**: `uploads.content_sha256` (SHA-256 of the file bytes, nullable, indexed; light migration in `core/database.py`),
+  set at upload. `GET /api/v1/upload/by-hash/{sha256}` (`routes/upload.py`, `ScannedMatchOut`) returns the caller's most recent
+  upload of identical bytes that has a finished detection result, else 404; only the caller's own uploads are searched, so a 404
+  never leaks that someone else scanned the file. `BatchVerify.jsx` hashes each file in the browser (`lib/fileHash.js`, Web Crypto)
+  and, on a match, skips upload + detection, shows the earlier verdict with a "Scanned before" label and links to the earlier
+  report. Hashing unavailable (non-secure context) or lookup failure -> the file is scanned normally. Limits: uploads from before
+  this change have no hash; the same file twice in one batch can both scan (two lanes check at the same moment); the single-file
+  Verify flow is unchanged. Tests: `backend/tests/test_upload_dedupe.py` (6).
+- **Dead code deleted** (user said "go ahead delete them"): `ml_pipeline.py`, `frontend/src/pages/` (8 files), `frontend/src/client.js`.
+  Verified first that nothing imported them (grep over backend, frontend/src, docs, CI, compose); build and `import app.main` OK after.
+- **CI was red for ~14 commits and nobody had seen it** (first look at GitHub Actions was this session): `facenet-pytorch==2.6.0` in
+  `requirements.txt` (added with identity verification) pins `torch<2.3`/`numpy<2`, so `pip install -r` failed and the backend job
+  never reached the tests. Fix: it now lives in `backend/requirements-nodeps.txt`, installed with `pip install --no-deps -r
+  requirements-nodeps.txt` after the main install, in `.github/workflows/ci.yml` and in both `Dockerfile` and `Dockerfile.prod`
+  (which previously did a plain install and so were probably broken too - the images are still never built/run in this environment).
+- **A second, hidden failure** only appeared once the install worked: `test_plain_language.py::test_audio_report_glossary_is_scoped_to_audio`
+  depended on the gitignored audio checkpoint (the glossary lists "Windows" only when the PDF has an Explainability section, which
+  needs the checkpoint). It now pins the explanation as available. **Lesson:** a green local run with checkpoints present does not
+  predict CI. Reproduce CI by cloning the pushed commit into a clean directory and running `pytest -m "not models"` without
+  `IMAGE_MODEL_CHECKPOINT`/`CLIP_MODEL_CHECKPOINT` set (this is how the failure was found; CI logs need a GitHub login).
+- **Result:** GitHub Actions green on `c27ffe5` (backend 529 passed + frontend build). Full local suite with checkpoints: 530 passed.
+- **End-to-end check (2026-10-21, real server + real checkpoints, HTTP only):** image, audio and video (background job) scans, PDF
+  report, explain and provenance all returned 200. **Not verified in a browser** (Chrome tools unavailable): the Batch tab's "Scanned
+  before" label and the in-browser hashing. `/health/ready` returns 503 locally because `backend/checkpoints/objects/yolov8n.onnx`
+  (ProctorLens object detection) is missing; the scanner itself is unaffected. `frontend/public/test-video.mp4` is a 29-byte
+  placeholder that the upload magic-byte check correctly rejects - not a usable demo video.
