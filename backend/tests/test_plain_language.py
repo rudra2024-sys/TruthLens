@@ -78,6 +78,13 @@ def test_real_report_has_plain_words_glossary_and_no_internal_references(client,
     assert "Manipulated (FAKE)" in text                                       # stub detector returns FAKE
 
 
-def test_audio_report_glossary_is_scoped_to_audio(client, scan, auth):
+def test_audio_report_glossary_is_scoped_to_audio(client, scan, auth, monkeypatch):
+    # The glossary only lists "Windows" when the report has an Explainability section, which for audio needs the
+    # gitignored Audio Model v1 checkpoint (absent in CI). Pin "an explanation exists" so this tests glossary
+    # scoping, not whether a checkpoint happens to be on disk.
+    from app.services.explain import service as explain_service
+    monkeypatch.setattr(explain_service, "build_explanation",
+                        lambda upload, result: explain_service.Explanation(available=True, media_type="audio",
+                                                                           method="stub"))
     text = _report(client, auth, scan(auth, wav_bytes(), "a.wav", "audio/wav"))
     assert "Windows." in text and "Heatmap (Grad-CAM)." not in text and "Face-swap check." not in text
