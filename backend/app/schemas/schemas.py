@@ -15,6 +15,15 @@ class UploadOut(BaseModel):
         from_attributes = True
 
 
+class ScannedMatchOut(BaseModel):
+    """An earlier scan of identical file bytes by the same user (batch scans reuse it instead of rescanning)."""
+    upload_id: str
+    verdict: str
+    confidence_score: float
+    class Config:
+        from_attributes = True
+
+
 class ImageAnalysisOut(BaseModel):
     efficientnet_score: Optional[float] = None
     fft_score: Optional[float] = None

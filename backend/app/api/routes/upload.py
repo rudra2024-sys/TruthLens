@@ -1,12 +1,12 @@
-import uuid, os
+import hashlib, re, uuid, os
 import aiofiles
 from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.core.database import get_db
 from app.core.config import settings
-from app.models.models import Upload, User
-from app.schemas.schemas import UploadOut
+from app.models.models import DetectionResult, Upload, User
+from app.schemas.schemas import ScannedMatchOut, UploadOut
 from app.api.routes.auth import get_current_user
 from app.services.file_sniff import sniff_matches_declared_family
 
@@ -88,10 +88,35 @@ async def upload_file(
         storage_url=path,
         file_size_kb=round(size_kb, 1),
         user_id=current_user.user_id,
+        content_sha256=hashlib.sha256(content).hexdigest(),
     )
     db.add(record)
     await db.flush()
     return _with_image_size(record)
+
+@router.get("/by-hash/{sha256}", response_model=ScannedMatchOut)
+async def find_scanned_by_hash(
+    sha256: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Most recent finished scan of identical file bytes uploaded by the current user, else 404. Only the caller's
+    own uploads are searched, so a 404 never reveals whether anyone else has scanned the same file."""
+    sha256 = sha256.lower()
+    if not re.fullmatch(r"[0-9a-f]{64}", sha256):
+        raise HTTPException(422, "Expected a 64-character hex SHA-256.")
+    r = await db.execute(
+        select(Upload.upload_id, DetectionResult.verdict, DetectionResult.confidence_score)
+        .join(DetectionResult, DetectionResult.upload_id == Upload.upload_id)
+        .where(Upload.user_id == current_user.user_id, Upload.content_sha256 == sha256)
+        .order_by(DetectionResult.detected_at.desc())
+        .limit(1)
+    )
+    row = r.first()
+    if not row:
+        raise HTTPException(404, "No earlier scan of this file")
+    return ScannedMatchOut(upload_id=row.upload_id, verdict=row.verdict, confidence_score=row.confidence_score)
+
 
 @router.get("/{upload_id}", response_model=UploadOut)
 async def get_upload(

@@ -78,6 +78,8 @@ class Upload(Base):
     # or ownership check, so old unowned rows just become inaccessible rather
     # than visible to everyone.
     user_id: Mapped[str | None] = mapped_column(String, ForeignKey("users.user_id"), nullable=True)
+    # SHA-256 of the file bytes, used by batch scans to skip files the user already scanned. NULL on older rows.
+    content_sha256: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
 
     result: Mapped["DetectionResult"] = relationship(
         "DetectionResult", back_populates="upload", uselist=False,

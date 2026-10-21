@@ -107,6 +107,16 @@ export const uploadMedia = async (file, onProgress) => {
   }
 }
 
+// An earlier scan by this user of byte-identical content, or null (404 = none; any other failure also -> null so the
+// batch just scans normally).
+export const findScannedByHash = async (sha256) => {
+  try {
+    return (await api.get(`/upload/by-hash/${sha256}`)).data
+  } catch {
+    return null
+  }
+}
+
 export const runDetection = async (uploadId) => {
   try {
     return await api.post(`/detect/${uploadId}`)

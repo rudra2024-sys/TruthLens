@@ -2,11 +2,12 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { AlertCircle, AudioLines, Clock, Download, FolderOpen, Image as ImageIcon, Loader2, Upload as UploadIcon,
   Video as VideoIcon, Files } from 'lucide-react'
-import { cancelJob, downloadBatchExport, getDetectionResult, getJob, runDetection, startDetectionJob, uploadMedia }
+import { cancelJob, downloadBatchExport, findScannedByHash, getDetectionResult, getJob, runDetection, startDetectionJob, uploadMedia }
   from '../api/client'
 import { ACCEPTED_INPUT_ACCEPT } from '../lib/acceptedFormats'
 import { MAX_BATCH_FILES, entriesFromDrop, entriesFromFileList, selectBatchFiles } from '../lib/batchFiles'
 import { createPacer, withRetryOn429 } from '../lib/pacer'
+import { sha256Hex } from '../lib/fileHash'
 import VerdictBadge from './VerdictBadge'
 
 // Production allows 20 upload/detect requests a minute per client (nginx.prod.conf); local dev has no limit.
@@ -78,6 +79,14 @@ export default function BatchVerify() {
   const paced = (fn) => withRetryOn429(async () => { await pacer.current(); return fn() })
 
   async function scanOne(item) {
+    // Same bytes already scanned by this user: reuse that result instead of uploading and scanning again.
+    const hash = await sha256Hex(item.file)
+    const earlier = hash ? await paced(() => findScannedByHash(hash)) : null
+    if (earlier) {
+      patch(item.id, { status: 'done', uploadId: earlier.upload_id, verdict: earlier.verdict,
+        confidence: earlier.confidence_score, reused: true })
+      return
+    }
     patch(item.id, { status: 'uploading' })
     const up = await paced(() => uploadMedia(item.file))
     const uploadId = up.data.upload_id
@@ -256,6 +265,7 @@ export default function BatchVerify() {
                         <span className="inline-flex items-center gap-3">
                           <VerdictBadge verdict={it.verdict} />
                           <span className="tl-figure text-[12px] text-bone-dim w-9 text-right">{Math.round(it.confidence * 100)}%</span>
+                          {it.reused && <span className="text-[11px] text-bone-faint" title="Identical file scanned before; earlier result reused">Scanned before</span>}
                         </span>
                       ) : it.status === 'failed' ? (
                         <span className="text-[12px] text-verdictDanger" title={it.error}>Failed</span>
