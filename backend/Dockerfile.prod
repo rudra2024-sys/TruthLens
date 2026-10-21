@@ -7,8 +7,9 @@ ENV PYTHONUNBUFFERED=1     PYTHONDONTWRITEBYTECODE=1
 WORKDIR /app
 RUN useradd --create-home --uid 10001 truthlens
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY requirements.txt requirements-nodeps.txt ./
+RUN pip install --no-cache-dir -r requirements.txt \
+ && pip install --no-cache-dir --no-deps -r requirements-nodeps.txt
 
 COPY --chown=truthlens:truthlens . .
 # /data holds the SQLite database, uploads and reports (mount a volume there so they survive container restarts)

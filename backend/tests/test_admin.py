@@ -285,3 +285,15 @@ def test_remove_from_roster_rejects_another_orgs_student(client, auth, admin_aut
 
     r = client.delete(f"/api/v1/admin/roster/{student_id}", headers=org_b_headers)
     assert r.status_code == 404
+
+
+def test_signup_with_individual_account_type_has_no_admin_access(client):
+    email = f"ind-{uuid.uuid4().hex[:8]}@example.com"
+    r = client.post("/api/v1/auth/signup", json={
+        "name": "Solo", "email": email, "password": PASSWORD, "account_type": "individual",
+    })
+    assert r.status_code in (200, 201), r.text
+    assert r.json()["role"] == "individual"
+    headers = {"Authorization": f"Bearer {r.json()['access_token']}"}
+    assert client.get("/api/v1/admin/roster", headers=headers).status_code == 403
+    assert client.get("/api/v1/auth/me", headers=headers).json()["role"] == "individual"

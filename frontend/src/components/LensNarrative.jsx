@@ -85,8 +85,9 @@ const InputPhase = () => (
         The instrument<br />for what's <span className="italic text-brass">real.</span>
       </h1>
       <p className="text-[17px] leading-[1.7] text-bone-dim max-w-[440px] mb-8">
-        Drop in an image, a video, or a piece of audio. What follows is a real examination —
-        signal by signal — not a spinner and a guess.
+        Drop in an image, a video, or a piece of audio. TruthLens runs it through the same
+        trained detection models as the live scan below — signal by signal, not a spinner
+        and a guess.
       </p>
       <div className="flex items-center gap-3 tl-hud-label">
         <span className="w-8 h-px bg-brass" />
@@ -103,8 +104,8 @@ const InspectionPhase = () => (
         Every pixel, examined.
       </h2>
       <p className="text-[15px] leading-[1.7] text-bone-dim">
-        The lens moves across the file's own surface — compression seams, sensor noise,
-        the places a synthesis pipeline leaves a seam.
+        Trained vision and audio models inspect the file's own surface — compression seams,
+        sensor noise, face-swap boundaries — the places a synthesis pipeline leaves a trace.
       </p>
     </div>
   </div>
@@ -184,8 +185,8 @@ const ConfidencePhase = () => (
         Not one signal.<br />All of them.
       </h2>
       <p className="text-[15px] leading-[1.7] text-bone-dim">
-        Every extracted signal resolves into a single, honestly-scored confidence —
-        shown, never just asserted.
+        Every extracted signal resolves into one calibrated confidence score — the same
+        number shown on your own result, never just asserted.
       </p>
     </div>
   </div>
@@ -197,8 +198,8 @@ const VerdictPhase = () => (
       Analysis complete.
     </h2>
     <p className="text-[15px] leading-[1.7] text-bone-dim max-w-[440px] mt-4">
-      A clear, confidence-scored conclusion — never a guess dressed up as certainty.
-      Your own result appears the same way.
+      A clear REAL, FAKE, or UNCERTAIN verdict, backed by a confidence score and a
+      downloadable PDF forensic report. Your own result appears exactly the same way.
     </p>
   </div>
 )

@@ -10,6 +10,7 @@ from app.core.database import get_db
 from app.models.models import DetectionResult, Feedback, Upload, User
 from app.schemas.schemas import FeedbackIn, FeedbackOut
 from app.services.audit_log import log_event
+from app.services.feedback_store import remove_wrong_feedback, sync_wrong_feedback
 
 router = APIRouter(prefix="/detect", tags=["Feedback"])
 
@@ -42,7 +43,7 @@ async def put_feedback(
     current_user: User = Depends(get_current_user),
 ):
     """Say whether a detection result was correct. Idempotent: one feedback per upload, resubmitting replaces it."""
-    await _owned_upload(db, upload_id, current_user)
+    upload = await _owned_upload(db, upload_id, current_user)
     result = (await db.execute(select(DetectionResult).where(DetectionResult.upload_id == upload_id))).scalars().first()
     if result is None:
         raise HTTPException(404, "There is no detection result to give feedback on yet.")
@@ -58,6 +59,7 @@ async def put_feedback(
     fb.result_id, fb.verdict = result.result_id, result.verdict
     fb.agrees, fb.true_label, fb.comment, fb.allow_reuse, fb.updated_at = body.agrees, true_label, comment, body.allow_reuse, now
     await db.flush()
+    sync_wrong_feedback(fb, upload)
     return fb
 
 
@@ -71,6 +73,7 @@ async def delete_feedback(
     """Withdraw feedback (and with it any consent to reuse the file)."""
     await _owned_upload(db, upload_id, current_user)
     fb = await _feedback_for(db, upload_id, current_user)
+    remove_wrong_feedback(upload_id)
     if fb is not None:
         await db.delete(fb)
         await log_event(db, "feedback_withdrawn", user_id=current_user.user_id, detail=upload_id, request=http_request)

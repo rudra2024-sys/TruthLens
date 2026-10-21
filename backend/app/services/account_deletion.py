@@ -18,6 +18,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.models.models import AudioAnalysis, DetectionResult, Feedback, ImageAnalysis, Upload, User, VideoAnalysis
 
+from app.services.feedback_store import remove_wrong_feedback
+
 logger = logging.getLogger(__name__)
 
 
@@ -51,6 +53,7 @@ async def delete_account(db: AsyncSession, user: User) -> dict:
             files_removed += 1
         if _remove_file(_report_path(u.upload_id)):
             files_removed += 1
+        files_removed += remove_wrong_feedback(u.upload_id)
 
     result_ids: list[str] = []
     if upload_ids:

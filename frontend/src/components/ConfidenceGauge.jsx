@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { motion, animate } from 'framer-motion'
+import { animate } from 'framer-motion'
 import useReducedMotion from '../hooks/useReducedMotion'
 
 /**
@@ -52,14 +52,14 @@ export default function ConfidenceGauge({ value, accent = '#C89361', size = 148,
     <div className="relative inline-flex flex-col items-center justify-center" style={{ width: size, height: size }}>
       <svg width={size} height={size} className="-rotate-0">
         <path d={trackPath} fill="none" stroke="rgba(237,234,227,0.1)" strokeWidth={stroke} strokeLinecap="round" />
-        <motion.path
+        <path
           d={trackPath}
           fill="none"
           stroke={accent}
           strokeWidth={stroke}
           strokeLinecap="round"
           strokeDasharray={arcLength}
-          style={{ strokeDashoffset: reduced ? arcLength - (pct / 100) * arcLength : dashOffset }}
+          strokeDashoffset={reduced ? arcLength - (pct / 100) * arcLength : dashOffset}
         />
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">

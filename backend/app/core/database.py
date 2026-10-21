@@ -62,6 +62,8 @@ _LIGHT_MIGRATIONS = [
     "ALTER TABLE video_analysis ADD COLUMN calibrated_fake_probability FLOAT",
     "ALTER TABLE video_analysis ADD COLUMN short_side_px INTEGER",
     "ALTER TABLE video_analysis ADD COLUMN low_resolution BOOLEAN",
+    "ALTER TABLE uploads ADD COLUMN content_sha256 TEXT",
+    "CREATE INDEX IF NOT EXISTS ix_uploads_content_sha256 ON uploads(content_sha256)",
     # Video/audio results used to store the raw P(FAKE) as confidence_score (so a confident REAL showed ~0%).
     # Convert old rows to confidence-in-the-verdict, max(p, 1-p). Idempotent (a value >= 0.5 is left as is) and
     # lossless (the raw P(FAKE) is still in video_analysis.xception_score / audio_analysis.wav2vec_score).

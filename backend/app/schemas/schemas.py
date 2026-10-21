@@ -9,6 +9,17 @@ class UploadOut(BaseModel):
     storage_url: str
     file_size_kb: float
     uploaded_at: str
+    width: Optional[int] = None      # pixels, images only (read from the file header; None if unreadable)
+    height: Optional[int] = None
+    class Config:
+        from_attributes = True
+
+
+class ScannedMatchOut(BaseModel):
+    """An earlier scan of identical file bytes by the same user (batch scans reuse it instead of rescanning)."""
+    upload_id: str
+    verdict: str
+    confidence_score: float
     class Config:
         from_attributes = True
 
@@ -512,3 +523,16 @@ class ExamAttemptListItemOut(BaseModel):
     score: Optional[int] = None
     started_at: str
     ended_at: Optional[str] = None
+
+
+class BatchItemIn(BaseModel):
+    """One file of a batch, as the page knows it: an upload that was scanned (upload_id set) or one that could not be
+    (upload_id empty, `error` says why)."""
+    upload_id: Optional[str] = None
+    file_name: str = Field(max_length=300)
+    error: Optional[str] = Field(default=None, max_length=300)
+
+
+class BatchExportIn(BaseModel):
+    items: List[BatchItemIn] = Field(min_length=1, max_length=100)
+    format: Literal["csv", "pdf"]

@@ -79,3 +79,18 @@ export function getDisplayVerdictInfo(rawVerdict, provenance) {
 export function getDisplayVerdict(rawVerdict, provenance) {
   return provenance?.conflict_note ? 'FAKE' : rawVerdict
 }
+
+/**
+ * The extra line shown under "Manipulation detected" for an image the models flagged, saying what kind of
+ * manipulation drove it. Uses only stored scores: when the face-swap check's probability is the highest of the
+ * image's component scores it was the face check that fired, otherwise the whole-image models did. Wording stays
+ * hedged ("likely") because the models can be wrong. Returns null for anything but a flagged image.
+ */
+export function getImageFakeHint(result, verdictKey) {
+  const a = result?.image_analysis
+  if (!a || verdictKey !== 'manipulated') return null
+  const face = a.face_swap_fake_probability
+  const whole = Math.max(a.convnext_fake_probability ?? 0, a.clip_fake_probability ?? 0)
+  if (face != null && face >= whole) return 'Likely a face swap'
+  return 'Likely AI-generated'
+}
